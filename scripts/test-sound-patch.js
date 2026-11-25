@@ -22,6 +22,8 @@ console.log(JSON.stringify({
   bytes: wire.length,
   field134: Buffer.from(raw).includes(Buffer.from([0xb2, 0x08])),
   decodedKeys: Object.keys(decoded.toJSON()),
+  // Top-level stickerMessage sengaja dibuang dari encode "known"; isi penuh
+  // pindah ke field 134 (lihat scripts/test-sound-wire.js).
   stickerKept: Boolean(decoded.stickerMessage),
   markerRemoved: !message.stickerMessage.soundStickerAudio,
 }));

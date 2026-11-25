@@ -302,6 +302,16 @@ Kirim video pendek dengan caption `.saudio` ke grup testing. Cek log:
 pm2 logs botwaku --lines 60 --nostream
 ```
 
+Nama stiker yang tampil di WhatsApp bisa diganti lewat `.env`:
+
+```bash
+echo 'STICKER_NAME=SmartBot by RzkyAds' >> .env
+pm2 restart botwaku --update-env
+```
+
+Nama ini ditulis ke EXIF WebP (judul + pembuat paket stiker). Default:
+`SmartBot by RzkyAds`.
+
 Batasi audio stiker:
 
 - `SOUND_STICKER_MAX_AUDIO_BYTES=921600` (900 KB; WhatsApp praktis gagal di sekitar 1 MB)

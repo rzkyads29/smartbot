@@ -26,6 +26,7 @@ function makeVideo(target, audio) {
   const ok = await createStickerWithAudio(fs.readFileSync(withAudio));
   console.log('OK', JSON.stringify({
     stickerBytes: ok.sticker.length,
+    stickerName: ok.stickerName,
     audioBytes: ok.audio.length,
     audioMimetype: ok.audioMimetype,
     riff: ok.sticker.subarray(0, 4).toString('ascii'),

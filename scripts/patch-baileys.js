@@ -96,18 +96,23 @@ if (generics.includes('const marker = sticker && sticker.soundStickerAudio;')) {
         const padded = padLength >= 1 && padLength <= 16 ? base.subarray(0, base.length - padLength) : base;
         const decoded = WAProto_1.proto.Message.decode(padded);
         const stickerBytes = WAProto_1.proto.Message.StickerMessage.encode(decoded.stickerMessage).finish();
-        const nested = protobuf.Writer.create()
-            .uint32(/* field 24 */ 192).uint32(0)
-            .uint32(/* field 26 */ 210).bytes(stickerBytes)
-            .uint32(/* field 26 */ 210).bytes(audio)
+        const nestedSticker = Buffer.concat([
+            Buffer.from(stickerBytes),
+            Buffer.from(protobuf.Writer.create().uint32(192).uint32(0).finish()),
+            Buffer.from(protobuf.Writer.create().uint32(210).bytes(audio).finish())
+        ]);
+        const nestedMessage = protobuf.Writer.create()
+            .uint32(/* Message field 26 */ 210).bytes(nestedSticker)
             .finish();
         const wrapped = protobuf.Writer.create()
-            .uint32(/* field 1 */ 10).bytes(nested)
+            .uint32(/* wrapper field 1 */ 10).bytes(nestedMessage)
             .finish();
         const sound = protobuf.Writer.create()
-            .uint32(/* field 134 */ 1074).bytes(wrapped)
+            .uint32(/* Message field 134 */ 1074).bytes(wrapped)
             .finish();
-        const known = WAProto_1.proto.Message.encode(decoded).finish();
+        const plain = WAProto_1.proto.Message.fromObject(decoded);
+        delete plain.stickerMessage;
+        const known = WAProto_1.proto.Message.encode(plain).finish();
         return (0, exports.writeRandomPadMax16)(Buffer.concat([known, sound]));
     } catch (err) {
         return base;

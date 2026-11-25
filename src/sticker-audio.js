@@ -3,6 +3,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
+const { Exif } = require("wa-sticker-formatter");
 
 const MAX_INPUT_MB = Number(process.env.STICKER_AUDIO_MAX_MB || 32);
 const STICKER_SECONDS = Number(process.env.STICKER_AUDIO_SECONDS || 5);
@@ -99,6 +100,14 @@ async function encodeAudio(videoPath, oggPath, m4aPath) {
 // pengembangan dan belum didukung Baileys. Jadi hasilnya: sticker animasi
 // + voice note terpisah, dijawab berurutan. Kalau nanti Baileys mendukung,
 // bagian pengiriman di commands.js bisa diganti tanpa mengubah encoder ini.
+// Rebuild animated WebP with EXIF so WhatsApp shows a sticker pack name.
+async function addStickerMetadata(stickerPath, outputPath, name) {
+  const image = new (require("node-webpmux").Image)();
+  await image.load(stickerPath);
+  const exif = await new Exif({ pack: name, author: name }).add(image);
+  await fs.promises.writeFile(outputPath, exif);
+}
+
 async function createStickerWithAudio(videoBuffer) {
   if (encoderBusy) {
     throw new Error("Masih ada proses .saudio lain. Tunggu yang ini selesai ya.");
@@ -119,6 +128,7 @@ async function createStickerWithAudio(videoBuffer) {
   const stickerPath = path.join(dir, `saudio-${id}.webp`);
   const oggPath = path.join(dir, `saudio-${id}.ogg`);
   const m4aPath = path.join(dir, `saudio-${id}.m4a`);
+  const namedPath = path.join(dir, `saudio-${id}-named.webp`);
 
   encoderBusy = true;
   try {
@@ -144,15 +154,19 @@ async function createStickerWithAudio(videoBuffer) {
 
     const audio = await encodeAudio(videoPath, oggPath, m4aPath);
 
+    const stickerName = process.env.STICKER_NAME || "SmartBot by RzkyAds";
+    await addStickerMetadata(stickerPath, namedPath, stickerName);
+
     return {
-      sticker: fs.readFileSync(stickerPath),
+      sticker: fs.readFileSync(namedPath),
       audio: fs.readFileSync(audio.path),
       audioMimetype: audio.mimetype,
-      stickerBytes: fs.statSync(stickerPath).size,
+      stickerBytes: fs.statSync(namedPath).size,
+      stickerName,
     };
   } finally {
     encoderBusy = false;
-    for (const file of [videoPath, stickerPath, oggPath, m4aPath]) {
+    for (const file of [videoPath, stickerPath, oggPath, m4aPath, namedPath]) {
       try {
         fs.unlinkSync(file);
       } catch (err) {
