@@ -745,22 +745,23 @@ Halo! Aku SmartBot. Ketik *.menu* untuk membuka menu fitur bot.`;
 20. *.allabsensi* : Rekap absen minggu ini.
 21. *.cekjadwal* : Cek jadwal aktif hari ini.
 22. *.stiker* : Mengubah foto menjadi stiker.
-23. *!ping* : Mengecek kecepatan respon bot.
-24. *.runtime* : Melihat uptime bot.
-25. *.status* : Dashboard kondisi bot (khusus admin).
-26. *.owner* : Menampilkan info owner bot.
+23. *.saudio* / *.stikeraudio* : (Caption/reply video) Sticker + audio dari video bersuara.
+24. *!ping* : Mengecek kecepatan respon bot.
+25. *.runtime* : Melihat uptime bot.
+26. *.status* : Dashboard kondisi bot (khusus admin).
+27. *.owner* : Menampilkan info owner bot.
 
 *👑 KHUSUS ADMIN GRUP*
-27. *.tambah_tugas <Matkul> | <Deskripsi> | <YYYY-MM-DD>*
-28. *.hapus_tugas <Nomor>*
-29. *.jadwaledit <Hari> | <Matkul> | <Jam> | <Ruang>*
-30. *.hapusjadwal <Hari> | <Matkul>*
-31. *.hidetag <Pesan>*
-32. *.setminggu <Angka>*
-33. *.hapusrekap <Tanggal>*
+28. *.tambah_tugas <Matkul> | <Deskripsi> | <YYYY-MM-DD>*
+29. *.hapus_tugas <Nomor>*
+30. *.jadwaledit <Hari> | <Matkul> | <Jam> | <Ruang>*
+31. *.hapusjadwal <Hari> | <Matkul>*
+32. *.hidetag <Pesan>*
+33. *.setminggu <Angka>*
+34. *.hapusrekap <Tanggal>*
 
 *👑 KHUSUS OWNER*
-34. *.resetbot <Semester>*
+35. *.resetbot <Semester>*
 
 _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder tugas setiap pagi (07:00 WIB)!_`;
 
@@ -2053,6 +2054,60 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
         'Mohon kirim foto dengan caption ".stiker" atau reply foto dengan ".stiker"',
       );
     }
+    return;
+  }
+
+  if (
+    msg.body.toLowerCase().startsWith(".saudio") ||
+    msg.body.toLowerCase().startsWith(".stikeraudio")
+  ) {
+    let media = null;
+
+    try {
+      if (msg.hasMedia) {
+        media = await msg.downloadMedia();
+      } else if (msg.hasQuotedMsg) {
+        const quotedMsg = await msg.getQuotedMessage();
+        if (quotedMsg && quotedMsg.hasMedia) {
+          media = await quotedMsg.downloadMedia();
+        }
+      }
+    } catch (err) {
+      console.error("[SAUDIO] Gagal mengambil video:", err?.message || err);
+      msg.reply("Gagal mengunduh video dari WhatsApp. Coba kirim ulang videonya ya.");
+      return;
+    }
+
+    if (!media || !String(media.mimetype || "").toLowerCase().startsWith("video")) {
+      msg.reply(
+        'Kirim video bersuara dengan caption *.saudio* atau *.stikeraudio*, atau reply video kamu dengan perintah itu.',
+      );
+      return;
+    }
+
+    msg.reply("⏳ Sedang membuat sticker + audionya, tunggu bentar ya...");
+    try {
+      const { createStickerWithAudio } = require("./sticker-audio");
+      const result = await createStickerWithAudio(Buffer.from(media.data, "base64"));
+      const options = _isGroup ? { quoted: fakeVerif } : {};
+
+      await client.sendMessage(msg.from, { sticker: result.sticker }, options);
+      await client.sendMessage(
+        msg.from,
+        { audio: result.audio, mimetype: result.audioMimetype, ptt: true },
+        options,
+      );
+      await msg.react('✅').catch(()=>{});
+    } catch (err) {
+      console.error("[SAUDIO]", err?.message || err);
+      if (isFatalSendError(err)) {
+        console.error("[SAUDIO] Writer/koneksi bermasalah; sisa pengiriman dibatalkan.");
+        return;
+      }
+      msg.reply(`❌ Gagal membuat sticker audio: ${err?.message || "kesalahan tidak diketahui"}`);
+      await msg.react('❌').catch(()=>{});
+    }
+    return;
   }
 
   // --- AGENTIC SYSTEM HANDLER ---

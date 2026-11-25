@@ -22,6 +22,8 @@ const SAFE_MODE_BLOCKED_COMMANDS = new Set([
     '.tebaklagu',
     '.stiker',
     '.sticker',
+    '.saudio',
+    '.stikeraudio',
     '.meme',
     '.nulis',
 ]);
