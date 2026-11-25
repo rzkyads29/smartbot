@@ -1997,13 +1997,17 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
   }
 
   if (msg.body.toLowerCase() === ".owner") {
-    msg.reply(
-      "👑 *INFO OWNER BOT*\n\n" +
-      "Nama: *RzkyAds*\n" +
-      "Nomor: *0857-0468-2918*\n" +
-      "WhatsApp: https://wa.me/6285704682918\n\n" +
-      "ciee kepo sama ownerkuu yang ganteng imut lucu ini yakk?? xixixi",
-    );
+    const vcard =
+      "BEGIN:VCARD\n" +
+      "VERSION:3.0\n" +
+      "FN:RzkyAds (Owner SmartBot)\n" +
+      "TEL;type=CELL;type=VOICE;waid=6285704682918:+62 857-0468-2918\n" +
+      "END:VCARD";
+    const displayName = "RzkyAds (Owner SmartBot)";
+    const options = _isGroup ? { quoted: fakeVerif } : {};
+
+    await client.sendMessage(_chatId, { text: "👑 *INFO OWNER BOT*\n\nciee kepo sama ownerkuu yang ganteng imut lucu ini yakk?? xixixi" }, options);
+    await client.sendMessage(_chatId, { contacts: { displayName, contacts: [{ vcard }] } }, options);
   }
 
   if (
