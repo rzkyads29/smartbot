@@ -2095,7 +2095,7 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
       let soundStickerSent = false;
       if (isSoundStickerEnabled() && result.audioMimetype === "audio/ogg; codecs=opus") {
         try {
-          const sound = await prepareSoundSticker(client, result.sticker, result.audio);
+          const sound = await prepareSoundSticker(client, result.sticker, result.audio, result.audioSeconds);
           if (sound) {
             await client.sendMessage(msg.from, sound.content, { ...options, ...sound.options });
             soundStickerSent = true;

@@ -27,6 +27,7 @@ function makeVideo(target, audio) {
   console.log('OK', JSON.stringify({
     stickerBytes: ok.sticker.length,
     stickerName: ok.stickerName,
+    audioSeconds: ok.audioSeconds,
     audioBytes: ok.audio.length,
     audioMimetype: ok.audioMimetype,
     riff: ok.sticker.subarray(0, 4).toString('ascii'),

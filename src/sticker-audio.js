@@ -80,7 +80,7 @@ async function encodeAudio(videoPath, oggPath, m4aPath) {
 
   try {
     await run("ffmpeg", [
-      ...common, "-ar", "48000",
+      ...common, "-ar", "48000", "-map", "0:a:0",
       "-c:a", "libopus", "-b:a", "48k", "-application", "voip",
       oggPath,
     ]);
@@ -96,16 +96,28 @@ async function encodeAudio(videoPath, oggPath, m4aPath) {
   }
 }
 
-// WhatsApp sound stickers (audio menempel di stickerMessage) masih tahap
-// pengembangan dan belum didukung Baileys. Jadi hasilnya: sticker animasi
-// + voice note terpisah, dijawab berurutan. Kalau nanti Baileys mendukung,
-// bagian pengiriman di commands.js bisa diganti tanpa mengubah encoder ini.
 // Rebuild animated WebP with EXIF so WhatsApp shows a sticker pack name.
 async function addStickerMetadata(stickerPath, outputPath, name) {
   const image = new (require("node-webpmux").Image)();
   await image.load(stickerPath);
-  const exif = await new Exif({ pack: name, author: name }).add(image);
+  const exif = await new Exif({ pack: name, author: "RzkyAds" }).add(image);
   await fs.promises.writeFile(outputPath, exif);
+}
+
+// Baileys computes AudioMessage.seconds with ffprobe; VPS may not have it.
+// ffmpeg prints Duration during decode, so reuse its stderr as fallback.
+async function probeAudioSeconds(oggPath, m4aPath) {
+  const file = fs.existsSync(oggPath) ? oggPath : m4aPath;
+  if (!fs.existsSync(file)) return 0;
+  try {
+    const { stderr } = await run("ffmpeg", ["-hide_banner", "-i", file, "-f", "null", "-"]);
+    const match = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+    if (!match) return 0;
+    const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+    return Number.isFinite(seconds) ? Math.max(1, Math.round(seconds)) : 0;
+  } catch (err) {
+    return 0;
+  }
 }
 
 async function createStickerWithAudio(videoBuffer) {
@@ -153,8 +165,11 @@ async function createStickerWithAudio(videoBuffer) {
     }
 
     const audio = await encodeAudio(videoPath, oggPath, m4aPath);
+    // AudioMessage.seconds helps WA decode sound stickers; Baileys ffprobe
+    // fallback can fail on VPS without ffprobe, so supply it from ffmpeg.
+    const audioSeconds = await probeAudioSeconds(oggPath, m4aPath);
 
-    const stickerName = process.env.STICKER_NAME || "SmartBot by RzkyAds";
+    const stickerName = (process.env.STICKER_NAME || "SmartBot by RzkyAds").trim().slice(0, 24);
     await addStickerMetadata(stickerPath, namedPath, stickerName);
 
     return {
@@ -163,6 +178,7 @@ async function createStickerWithAudio(videoBuffer) {
       audioMimetype: audio.mimetype,
       stickerBytes: fs.statSync(namedPath).size,
       stickerName,
+      audioSeconds,
     };
   } finally {
     encoderBusy = false;

@@ -16,12 +16,19 @@ function isSoundStickerEnabled() {
   return String(process.env.SOUND_STICKER_EXPERIMENTAL || "").trim().toLowerCase() === "true";
 }
 
-async function prepareSoundSticker(client, sticker, audio) {
+async function prepareSoundSticker(client, sticker, audio, audioSeconds = 0) {
   if (!isSoundStickerEnabled()) return null;
   if (!audio || audio.length > MAX_AUDIO_BYTES) return null;
 
+  // AudioMessage.seconds helps WhatsApp decode the sound sticker; when the
+  // source is known we forward it instead of relying on Baileys ffprobe.
   const media = await prepareWAMessageMedia(
-    { audio, mimetype: AUDIO_MIMETYPE, ptt: false },
+    {
+      audio,
+      mimetype: AUDIO_MIMETYPE,
+      ptt: false,
+      ...(audioSeconds ? { seconds: audioSeconds } : {}),
+    },
     { upload: client.waUploadToServer }
   );
 
