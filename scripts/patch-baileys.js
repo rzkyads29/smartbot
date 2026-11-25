@@ -1,15 +1,33 @@
 const fs = require('fs');
 const path = require('path');
 
+const projectRoot = path.join(__dirname, '..');
+const utilsFile = path.join(
+    projectRoot,
+    'node_modules',
+    '@whiskeysockets',
+    'baileys',
+    'lib',
+    'Utils',
+    'generics.js'
+);
 const file = path.join(
-    __dirname,
-    '..',
+    projectRoot,
     'node_modules',
     '@whiskeysockets',
     'baileys',
     'lib',
     'Socket',
     'newsletter.js'
+);
+const messagesFile = path.join(
+    projectRoot,
+    'node_modules',
+    '@whiskeysockets',
+    'baileys',
+    'lib',
+    'Utils',
+    'messages.js'
 );
 
 if (!fs.existsSync(file)) {
@@ -49,4 +67,90 @@ if (changed) {
     console.log('[PATCH] Fitur auto-join newsletter dan security patrol Baileys dinonaktifkan.');
 } else {
     console.log('[PATCH] Baileys sudah dipatch atau pola tidak ditemukan.');
+}
+
+// Patch kirim sound sticker (eksperimen). Runtime tetap dikontrol
+// SOUND_STICKER_EXPERIMENTAL; tanpa flag, encodeWAMessage langsung lewat.
+let generics = fs.readFileSync(utilsFile, 'utf8');
+let soundStickerChanged = false;
+
+const encodePattern = /const encodeWAMessage = \(message\) => \(\(0, exports\.writeRandomPadMax16\)\(WAProto_1\.proto\.Message\.encode\(message\)\.finish\(\)\)\);/;
+
+if (generics.includes('const marker = sticker && sticker.soundStickerAudio;')) {
+    console.log('[PATCH] Sound sticker sudah dipatch.');
+} else if (!encodePattern.test(generics)) {
+    console.warn('[PATCH] Pola encodeWAMessage tidak ditemukan; sound sticker tidak aktif.');
+} else {
+    generics = generics.replace(
+        encodePattern,
+        `const encodeWAMessage = (message) => {
+    const base = (0, exports.writeRandomPadMax16)(WAProto_1.proto.Message.encode(message).finish());
+    const sticker = message && message.stickerMessage;
+    const marker = sticker && sticker.soundStickerAudio;
+    if (!marker || String(process.env.SOUND_STICKER_EXPERIMENTAL).trim().toLowerCase() !== 'true') return base;
+    delete sticker.soundStickerAudio;
+    try {
+        const protobuf = require('protobufjs');
+        const audio = protobuf.Reader.create(marker).buf;
+        const padLength = base[base.length - 1];
+        const padded = padLength >= 1 && padLength <= 16 ? base.subarray(0, base.length - padLength) : base;
+        const decoded = WAProto_1.proto.Message.decode(padded);
+        const stickerBytes = WAProto_1.proto.Message.StickerMessage.encode(decoded.stickerMessage).finish();
+        const nested = protobuf.Writer.create()
+            .uint32(/* field 24 */ 192).uint32(0)
+            .uint32(/* field 26 */ 210).bytes(stickerBytes)
+            .uint32(/* field 26 */ 210).bytes(audio)
+            .finish();
+        const wrapped = protobuf.Writer.create()
+            .uint32(/* field 1 */ 10).bytes(nested)
+            .finish();
+        const sound = protobuf.Writer.create()
+            .uint32(/* field 134 */ 1074).bytes(wrapped)
+            .finish();
+        const known = WAProto_1.proto.Message.encode(decoded).finish();
+        return (0, exports.writeRandomPadMax16)(Buffer.concat([known, sound]));
+    } catch (err) {
+        return base;
+    }
+};`
+    );
+    soundStickerChanged = true;
+    fs.writeFileSync(utilsFile, generics);
+    console.log('[PATCH] Sound sticker encoding aktif (field 134).');
+}
+
+if (fs.existsSync(messagesFile)) {
+    let messages = fs.readFileSync(messagesFile, 'utf8');
+    if (messages.includes('const soundStickerAudio = options && options.soundStickerAudio;')) {
+        console.log('[PATCH] Sound sticker message builder sudah dipatch.');
+    } else {
+        const fromObjectPattern = '    message = Types_1.WAProto.Message.fromObject(message);\n    const messageJSON = {';
+        const returnPattern = '    return Types_1.WAProto.WebMessageInfo.fromObject(messageJSON);\n};\nexports.generateWAMessageFromContent = generateWAMessageFromContent;';
+
+        if (!messages.includes(fromObjectPattern) || !messages.includes(returnPattern)) {
+            console.warn('[PATCH] Pola generateWAMessageFromContent tidak ditemukan; sound sticker tidak aktif.');
+        } else {
+            messages = messages.replace(
+                fromObjectPattern,
+                '    const soundStickerAudio = options && options.soundStickerAudio;\n' +
+                '    message = Types_1.WAProto.Message.fromObject(message);\n' +
+                '    if (soundStickerAudio && message.stickerMessage) {\n' +
+                '        message.stickerMessage.soundStickerAudio = soundStickerAudio;\n' +
+                '    }\n' +
+                '    const messageJSON = {'
+            );
+            messages = messages.replace(
+                returnPattern,
+                '    const result = Types_1.WAProto.WebMessageInfo.fromObject(messageJSON);\n' +
+                '    if (soundStickerAudio && result.message && result.message.stickerMessage) {\n' +
+                '        result.message.stickerMessage.soundStickerAudio = soundStickerAudio;\n' +
+                '    }\n' +
+                '    return result;\n' +
+                '};\n' +
+                'exports.generateWAMessageFromContent = generateWAMessageFromContent;'
+            );
+            fs.writeFileSync(messagesFile, messages);
+            console.log('[PATCH] Sound sticker message builder aktif.');
+        }
+    }
 }

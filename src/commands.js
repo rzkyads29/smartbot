@@ -2088,15 +2088,33 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
     msg.reply("⏳ Sedang membuat sticker + audionya, tunggu bentar ya...");
     try {
       const { createStickerWithAudio } = require("./sticker-audio");
+      const { prepareSoundSticker, isSoundStickerEnabled } = require("./sound-sticker-send");
       const result = await createStickerWithAudio(Buffer.from(media.data, "base64"));
       const options = _isGroup ? { quoted: fakeVerif } : {};
 
-      await client.sendMessage(msg.from, { sticker: result.sticker }, options);
-      await client.sendMessage(
-        msg.from,
-        { audio: result.audio, mimetype: result.audioMimetype, ptt: true },
-        options,
-      );
+      let soundStickerSent = false;
+      if (isSoundStickerEnabled() && result.audioMimetype === "audio/ogg; codecs=opus") {
+        try {
+          const sound = await prepareSoundSticker(client, result.sticker, result.audio);
+          if (sound) {
+            await client.sendMessage(msg.from, sound.content, { ...options, ...sound.options });
+            soundStickerSent = true;
+            console.log(`[SAUDIO] Sound sticker terkirim (sticker ${result.stickerBytes} bytes).`);
+          }
+        } catch (err) {
+          if (isFatalSendError(err)) throw err;
+          console.error("[SAUDIO] Sound sticker gagal, pakai fallback:", err?.message || err);
+        }
+      }
+
+      if (!soundStickerSent) {
+        await client.sendMessage(msg.from, { sticker: result.sticker }, options);
+        await client.sendMessage(
+          msg.from,
+          { audio: result.audio, mimetype: result.audioMimetype, ptt: true },
+          options,
+        );
+      }
       await msg.react('✅').catch(()=>{});
     } catch (err) {
       console.error("[SAUDIO]", err?.message || err);

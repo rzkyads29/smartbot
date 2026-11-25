@@ -280,6 +280,44 @@ Setelah bot hidup, admin/owner bisa mengirim `.status` di grup untuk melihat
 uptime, RAM bot, RAM tersedia, swap, status scraper, sync ETHOL terakhir, jumlah
 jadwal hari ini, tugas belum selesai, dan rekap absen minggu ini.
 
+## 10. Sound sticker eksperimen `.saudio`
+
+Secara default, `.saudio` / `.stikeraudio` mengirim stiker WebP + voice note
+terpisah. WhatsApp juga punya stiker bersuara asli. Baileys yang dipakai belum
+punya dukungan protobuf untuk fitur itu, jadi ada patch eksperimen.
+
+Aktifkan hanya di VPS:
+
+```bash
+cd ~/bot-absensi-wa
+cp .env .env.backup-before-sound-sticker
+echo 'SOUND_STICKER_EXPERIMENTAL=true' >> .env
+npm run patch-baileys
+pm2 restart botwaku --update-env
+```
+
+Kirim video pendek dengan caption `.saudio` ke grup testing. Cek log:
+
+```bash
+pm2 logs botwaku --lines 60 --nostream
+```
+
+Batasi audio stiker:
+
+- `SOUND_STICKER_MAX_AUDIO_BYTES=921600` (900 KB; WhatsApp praktis gagal di sekitar 1 MB)
+- `STICKER_AUDIO_SOUND_SECONDS=10`
+- Audio wajib `audio/ogg; codecs=opus`.
+
+Kalau muncul `writer Timeout`, `Connection Closed`, atau stiker tidak stabil,
+matikan patch dengan:
+
+```bash
+cp .env.backup-before-sound-sticker .env
+pm2 restart botwaku --update-env
+```
+
+Fallback `.saudio` tetap jalan meski patch gagal.
+
 ---
 
 ## 10. Kalau muncul "writer Timeout"
