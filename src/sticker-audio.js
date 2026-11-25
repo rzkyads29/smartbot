@@ -100,7 +100,7 @@ async function encodeAudio(videoPath, oggPath, m4aPath) {
 async function addStickerMetadata(stickerPath, outputPath, name) {
   const image = new (require("node-webpmux").Image)();
   await image.load(stickerPath);
-  const exif = await new Exif({ pack: name, author: "RzkyAds" }).add(image);
+  const exif = await new Exif({ pack: name, author: "" }).add(image);
   await fs.promises.writeFile(outputPath, exif);
 }
 
