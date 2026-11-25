@@ -76,11 +76,24 @@ let soundStickerChanged = false;
 
 const encodePattern = /const encodeWAMessage = \(message\) => \(\(0, exports\.writeRandomPadMax16\)\(WAProto_1\.proto\.Message\.encode\(message\)\.finish\(\)\)\);/;
 
-if (generics.includes('const marker = sticker && sticker.soundStickerAudio;')) {
-    console.log('[PATCH] Sound sticker sudah dipatch.');
-} else if (!encodePattern.test(generics)) {
-    console.warn('[PATCH] Pola encodeWAMessage tidak ditemukan; sound sticker tidak aktif.');
+const soundWireMarker = 'const nestedSticker = Buffer.concat([';
+
+if (generics.includes(soundWireMarker)) {
+    console.log('[PATCH] Sound sticker sudah dipatch (wire terbaru).');
 } else {
+    // Patch lama menaruh field 24/26 di level Message. Hapus dulu supaya
+    // encodePattern cocok lagi saat npm run patch-baileys diulang.
+    if (generics.includes('const marker = sticker && sticker.soundStickerAudio;')) {
+        const patchedPattern = /const encodeWAMessage = \(message\) => \{[\s\S]*?\n\};\nexports\.encodeWAMessage = encodeWAMessage;/;
+        generics = generics.replace(
+            patchedPattern,
+            'const encodeWAMessage = (message) => ((0, exports.writeRandomPadMax16)(WAProto_1.proto.Message.encode(message).finish()));\nexports.encodeWAMessage = encodeWAMessage;'
+        );
+        console.log('[PATCH] Patch sound sticker lama dihapus.');
+    }
+    if (!encodePattern.test(generics)) {
+        console.warn('[PATCH] Pola encodeWAMessage tidak ditemukan; sound sticker tidak aktif.');
+    } else {
     generics = generics.replace(
         encodePattern,
         `const encodeWAMessage = (message) => {
@@ -119,9 +132,10 @@ if (generics.includes('const marker = sticker && sticker.soundStickerAudio;')) {
     }
 };`
     );
-    soundStickerChanged = true;
-    fs.writeFileSync(utilsFile, generics);
-    console.log('[PATCH] Sound sticker encoding aktif (field 134).');
+        soundStickerChanged = true;
+        fs.writeFileSync(utilsFile, generics);
+        console.log('[PATCH] Sound sticker encoding aktif (field 134).');
+    }
 }
 
 if (fs.existsSync(messagesFile)) {
