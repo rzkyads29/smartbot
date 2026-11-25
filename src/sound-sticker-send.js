@@ -22,10 +22,14 @@ async function prepareSoundSticker(client, sticker, audio, audioSeconds = 0) {
 
   // AudioMessage.seconds helps WhatsApp decode the sound sticker; when the
   // source is known we forward it instead of relying on Baileys ffprobe.
+  // Baileys fork re-transcodes whenever mimetype contains "codecs=opus"
+  // (forceOpus). Its default ffmpeg .ogg output can carry a Theora stream,
+  // which WhatsApp sound stickers refuse to play. Upload the already-valid
+  // Opus bytes untouched, then restore the expected wire mimetype.
   const media = await prepareWAMessageMedia(
     {
       audio,
-      mimetype: AUDIO_MIMETYPE,
+      mimetype: "audio/ogg",
       ptt: false,
       ...(audioSeconds ? { seconds: audioSeconds } : {}),
     },
@@ -33,6 +37,7 @@ async function prepareSoundSticker(client, sticker, audio, audioSeconds = 0) {
   );
 
   if (!media?.audioMessage) return null;
+  media.audioMessage.mimetype = AUDIO_MIMETYPE;
 
   return {
     content: { sticker },

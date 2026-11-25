@@ -82,6 +82,7 @@ async function encodeAudio(videoPath, oggPath, m4aPath) {
     await run("ffmpeg", [
       ...common, "-ar", "48000", "-map", "0:a:0",
       "-c:a", "libopus", "-b:a", "48k", "-application", "voip",
+      "-map_metadata", "-1", "-f", "ogg",
       oggPath,
     ]);
     return { path: oggPath, mimetype: "audio/ogg; codecs=opus" };
@@ -172,14 +173,16 @@ async function createStickerWithAudio(videoBuffer) {
     const stickerName = (process.env.STICKER_NAME || "SmartBot by RzkyAds").trim().slice(0, 24);
     await addStickerMetadata(stickerPath, namedPath, stickerName);
 
+    const audioBuffer = fs.readFileSync(audio.path);
+
     return {
       sticker: fs.readFileSync(namedPath),
-      audio: fs.readFileSync(audio.path),
+      audio: audioBuffer,
       audioMimetype: audio.mimetype,
       stickerBytes: fs.statSync(namedPath).size,
       stickerName,
       audioSeconds,
-      audioBytes: audio.length,
+      audioBytes: audioBuffer.length,
     };
   } finally {
     encoderBusy = false;
