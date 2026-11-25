@@ -179,6 +179,7 @@ async function createStickerWithAudio(videoBuffer) {
       stickerBytes: fs.statSync(namedPath).size,
       stickerName,
       audioSeconds,
+      audioBytes: audio.length,
     };
   } finally {
     encoderBusy = false;

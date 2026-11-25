@@ -2062,14 +2062,17 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
     msg.body.toLowerCase().startsWith(".stikeraudio")
   ) {
     let media = null;
+    let mediaSource = "";
 
     try {
       if (msg.hasMedia) {
         media = await msg.downloadMedia();
+        mediaSource = "video langsung";
       } else if (msg.hasQuotedMsg) {
         const quotedMsg = await msg.getQuotedMessage();
         if (quotedMsg && quotedMsg.hasMedia) {
           media = await quotedMsg.downloadMedia();
+          mediaSource = "video yang direply";
         }
       }
     } catch (err) {
@@ -2091,6 +2094,11 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
       const { prepareSoundSticker, isSoundStickerEnabled } = require("./sound-sticker-send");
       const result = await createStickerWithAudio(Buffer.from(media.data, "base64"));
       const options = _isGroup ? { quoted: fakeVerif } : {};
+      console.log(
+        `[SAUDIO] Media ${mediaSource || "tidak diketahui"}:Video ${media.mimetype || "?"}, ` +
+          `sticker ${result.stickerBytes} bytes, audio ${result.audioBytes || 0} bytes, ` +
+          `audioSeconds ${result.audioSeconds || 0}.`,
+      );
 
       let soundStickerSent = false;
       if (isSoundStickerEnabled() && result.audioMimetype === "audio/ogg; codecs=opus") {

@@ -101,7 +101,9 @@ if (generics.includes(soundWireMarker)) {
     const sticker = message && message.stickerMessage;
     const marker = sticker && sticker.soundStickerAudio;
     if (!marker || String(process.env.SOUND_STICKER_EXPERIMENTAL).trim().toLowerCase() !== 'true') return base;
-    delete sticker.soundStickerAudio;
+    // Jangan hapus marker: objek message yang sama di-encode dua kali
+    // (device sendiri + penerima). Proto mengabaikan field tak dikenal, jadi
+    // cukup baca tanpa mutasi.
     try {
         const protobuf = require('protobufjs');
         const audio = protobuf.Reader.create(marker).buf;

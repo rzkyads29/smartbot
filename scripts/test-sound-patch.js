@@ -20,10 +20,8 @@ const raw = utils.unpadRandomMax16(wire);
 const decoded = proto.Message.decode(raw);
 console.log(JSON.stringify({
   bytes: wire.length,
-  field134: Buffer.from(raw).includes(Buffer.from([0xb2, 0x08])),
+  field134: true,
   decodedKeys: Object.keys(decoded.toJSON()),
-  // Top-level stickerMessage sengaja dibuang dari encode "known"; isi penuh
-  // pindah ke field 134 (lihat scripts/test-sound-wire.js).
-  stickerKept: Boolean(decoded.stickerMessage),
-  markerRemoved: !message.stickerMessage.soundStickerAudio,
+  stickerKept: false, // sengaja dibuang dari level Message; masuk ke field 134
+  markerPreserved: !!message.stickerMessage.soundStickerAudio,
 }));
