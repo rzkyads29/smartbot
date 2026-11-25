@@ -71,6 +71,28 @@ async function encodeSticker(videoPath, stickerPath, { seconds, fps, quality }) 
   ]);
 }
 
+async function encodeStickerWithinBudget(videoPath, stickerPath, { seconds, fps, quality }) {
+  // Jangan pangkas durasi bila file melebihi batas. Kalau durasi stiker lebih
+  // pendek dari audio, stiker selesai duluan dan desinkron. Turunkan kualitas
+  // dan fps sampai muat; ukuran akhir setelah EXIF ditambahkan.
+  const ladder = [
+    { fps, quality },
+    { fps: Math.max(6, fps - 2), quality: Math.max(25, quality - 10) },
+    { fps: 6, quality: 20 },
+    { fps: 4, quality: 10 },
+  ];
+  let lastError;
+  for (const attempt of ladder) {
+    await encodeSticker(videoPath, stickerPath, { seconds, ...attempt });
+    const size = fs.statSync(stickerPath).size;
+    if (size <= STICKER_MAX_BYTES) return { seconds, ...attempt, size };
+    lastError = new Error(
+      `Stiker ${size} byte melebihi batas ${STICKER_MAX_BYTES} byte.`,
+    );
+  }
+  throw lastError;
+}
+
 async function encodeAudio(videoPath, oggPath, m4aPath) {
   const common = [
     "-hide_banner", "-loglevel", "error", "-nostats",
@@ -151,19 +173,11 @@ async function createStickerWithAudio(videoBuffer) {
       throw new Error("Video ini tidak punya suara. Kirim video yang ada audionya ya.");
     }
 
-    await encodeSticker(videoPath, stickerPath, {
+    await encodeStickerWithinBudget(videoPath, stickerPath, {
       seconds: STICKER_SECONDS,
       fps: 10,
       quality: 45,
     });
-
-    if (fs.statSync(stickerPath).size > STICKER_MAX_BYTES) {
-      await encodeSticker(videoPath, stickerPath, {
-        seconds: Math.max(2, Math.min(3, STICKER_SECONDS)),
-        fps: 8,
-        quality: 25,
-      });
-    }
 
     const audio = await encodeAudio(videoPath, oggPath, m4aPath);
     // AudioMessage.seconds helps WA decode sound stickers; Baileys ffprobe
