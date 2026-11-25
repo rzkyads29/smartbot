@@ -6,8 +6,8 @@ const { execFile } = require("child_process");
 const { Exif } = require("wa-sticker-formatter");
 
 const MAX_INPUT_MB = Number(process.env.STICKER_AUDIO_MAX_MB || 32);
-const STICKER_SECONDS = Number(process.env.STICKER_AUDIO_SECONDS || 5);
-const AUDIO_SECONDS = Number(process.env.STICKER_AUDIO_SOUND_SECONDS || 10);
+const STICKER_SECONDS = Number(process.env.STICKER_AUDIO_SECONDS || 15);
+const AUDIO_SECONDS = Number(process.env.STICKER_AUDIO_SOUND_SECONDS || 15);
 const STICKER_MAX_BYTES = Number(process.env.STICKER_MAX_BYTES || 500 * 1024);
 
 // VPS cuma 892 MB. Satu encoder jalan, yang lain ditolak supaya ffmpeg

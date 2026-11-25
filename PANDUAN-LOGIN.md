@@ -309,13 +309,15 @@ echo 'STICKER_NAME=SmartBot by RzkyAds' >> .env
 pm2 restart botwaku --update-env
 ```
 
-Nama ini ditulis ke EXIF WebP (judul + pembuat paket stiker). Default:
+Nama ini ditulis ke EXIF WebP (judul paket stiker). Default:
 `SmartBot by RzkyAds`.
 
 Batasi audio stiker:
 
 - `SOUND_STICKER_MAX_AUDIO_BYTES=921600` (900 KB; WhatsApp praktis gagal di sekitar 1 MB)
-- `STICKER_AUDIO_SOUND_SECONDS=10`
+- `STICKER_AUDIO_SOUND_SECONDS=15` (durasi maksimal audio, default 15 detik)
+- `STICKER_AUDIO_SECONDS=15` (durasi maksimal stiker WebP, default 15 detik)
+- Sticker + audio dipaksa sama durasinya supaya tidak desinkron.
 - Audio wajib `audio/ogg; codecs=opus`.
 
 Kalau muncul `writer Timeout`, `Connection Closed`, atau stiker tidak stabil,
