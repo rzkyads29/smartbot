@@ -924,7 +924,7 @@ Halo! Aku SmartBot. Ketik *.menu* untuk membuka menu fitur bot.`;
 *👑 KHUSUS OWNER*
 46. *.resetbot <Semester>*
 
-_Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas setiap pagi (07:00 WIB), reminder kas mingguan, dan backup database harian._`;
+_Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas setiap pagi (07:00 WIB), reminder kas tiap Minggu 19:00 & Senin 06:00 WIB, dan backup database harian._`;
 
     if (isMenuCommand && isButtonMenuEnabledForChat(msg.from)) {
       try {

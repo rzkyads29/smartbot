@@ -652,27 +652,36 @@ function setupCronJobs(client) {
         timezone: "Asia/Jakarta"
     });
 
-    // Reminder kas mingguan. Default Minggu 19:00 WIB (sebelum minggu ganti),
-    // bisa diubah lewat KAS_REMINDER_CRON. Hanya jalan kalau ada sheet kas.
+    // Reminder kas otomatis. Default: Minggu 19:00 dan Senin 06:00 WIB.
+    // Bisa beberapa jadwal sekaligus, pisahkan pakai koma di KAS_REMINDER_CRON.
     if (String(process.env.KAS_REMINDER_ENABLED || 'true') !== 'false') {
         const kasConfigured = !!(loadData().kas_url || process.env.KAS_SPREADSHEET_URL);
         if (!kasConfigured) {
             console.log('[KAS] Reminder kas dilewati: KAS_SPREADSHEET_URL / kas_url belum diatur.');
         } else {
-            try {
-                cron.schedule(process.env.KAS_REMINDER_CRON || '0 19 * * 0', async () => {
-                    try {
-                        const result = await checkKasAndSend(client, process.env.TARGET_GROUP_ID, false);
-                        if (result) console.log(`[KAS] ${result}`);
-                    } catch (err) {
-                        console.error('[KAS] Reminder kas gagal:', err?.message || err);
-                        queueOwnerAlert(`Reminder kas gagal dikirim.\nDetail: ${String(err?.message || err).slice(0, 300)}`, { key: 'kas' });
-                        flushOwnerAlerts(client).catch(() => {});
-                    }
-                }, { scheduled: true, timezone: 'Asia/Jakarta' });
-                console.log(`[CRON] Reminder kas aktif (${process.env.KAS_REMINDER_CRON || '0 19 * * 0'}).`);
-            } catch (err) {
-                console.error('[KAS] KAS_REMINDER_CRON tidak valid:', err?.message || err);
+            const kasCrons = String(process.env.KAS_REMINDER_CRON || '0 19 * * 0,0 6 * * 1')
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+
+            const runKasReminder = async () => {
+                try {
+                    const result = await checkKasAndSend(client, process.env.TARGET_GROUP_ID, false);
+                    if (result) console.log(`[KAS] ${result}`);
+                } catch (err) {
+                    console.error('[KAS] Reminder kas gagal:', err?.message || err);
+                    queueOwnerAlert(`Reminder kas gagal dikirim.\nDetail: ${String(err?.message || err).slice(0, 300)}`, { key: 'kas' });
+                    flushOwnerAlerts(client).catch(() => {});
+                }
+            };
+
+            for (const expr of kasCrons) {
+                try {
+                    cron.schedule(expr, runKasReminder, { scheduled: true, timezone: 'Asia/Jakarta' });
+                    console.log(`[CRON] Reminder kas aktif (${expr}).`);
+                } catch (err) {
+                    console.error(`[KAS] Jadwal kas tidak valid (${expr}):`, err?.message || err);
+                }
             }
         }
     }
