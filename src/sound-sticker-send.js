@@ -22,20 +22,22 @@ async function prepareSoundSticker(client, sticker, audio, audioSeconds = 0) {
   if (!isSoundStickerEnabled()) return null;
   if (!audio || audio.length > MAX_AUDIO_BYTES) return null;
 
-  // Jangan set mimetype sendiri. Dengan default Baileys ("audio/ogg; codecs=opus")
-  // Baileys menjalankan konversi Opus-nya, sama seperti implementasi sound sticker
-  // yang terbukti bunyi. Override mimetype sesudah upload pernah bikin klien
-  // menampilkan tombol suara tapi tidak memutar audio.
+  // Upload sebagai "audio/ogg" polos supaya fork Baileys tidak meng-transcode
+  // ulang (konversinya mengubah mono 32k jadi stereo). Sound sticker yang
+  // terbukti bunyi memakai mono 32k dari encode dua tahap. Setelah upload,
+  // kembalikan mimetype wire ke codecs=opus karena klien WhatsApp butuh
+  // penanda itu untuk memutar audionya.
   const media = await prepareWAMessageMedia(
     {
       audio,
+      mimetype: "audio/ogg",
       ...(audioSeconds ? { seconds: audioSeconds } : {}),
     },
     { upload: client.waUploadToServer, logger: silentLogger },
   );
 
   if (!media?.audioMessage) return null;
-  if (!media.audioMessage.mimetype) media.audioMessage.mimetype = AUDIO_MIMETYPE;
+  media.audioMessage.mimetype = AUDIO_MIMETYPE;
 
   return {
     content: { sticker },
