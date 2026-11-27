@@ -154,11 +154,11 @@ function formatKasReminder(summary) {
     const mentions = [];
     debtors.forEach((debtor, idx) => {
         let debtorStr = `${idx + 1}. `;
+        // Hidetag: tampilkan nama saja, tapi nomornya tetap dimasukkan ke daftar
+        // mentions supaya orangnya dapat notifikasi tanpa terlihat "@nomor".
+        debtorStr += `*${debtor.name}*`;
         if (debtor.waId) {
-            debtorStr += `@${debtor.waId.split('@')[0]}`;
             mentions.push(debtor.waId);
-        } else {
-            debtorStr += `*${debtor.name}*`;
         }
         debtorStr += ` (${debtor.nrp})\n`;
         debtorStr += `   Status: Belum bayar minggu: *${debtor.unpaidWeeks.join(', ')}*\n`;

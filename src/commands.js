@@ -919,10 +919,11 @@ Halo! Aku SmartBot. Ketik *.menu* untuk membuka menu fitur bot.`;
 42. *.setminggu <Angka>*
 43. *.hapusrekap <Tanggal>*
 44. *.reminderkas* : Kirim pengingat kas ke grup.
-45. *.backup* : Backup database absensi sekarang.
+45. *.kasmap <Nama>* : Hubungkan nama kas ke WhatsApp (hidetag).
+46. *.backup* : Backup database absensi sekarang.
 
 *👑 KHUSUS OWNER*
-46. *.resetbot <Semester>*
+47. *.resetbot <Semester>*
 
 _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas setiap pagi (07:00 WIB), reminder kas tiap Minggu 19:00 & Senin 06:00 WIB, dan backup database harian._`;
 
@@ -1329,6 +1330,7 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
     ".syncjadwal",
     ".testkas",
     ".reminderkas",
+    ".kasmap",
     ".backup"
   ];
   const isCmdAdmin = adminCommands.some((cmd) =>
@@ -1399,6 +1401,79 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
       } else {
         msg.reply(`❌ Backup gagal: ${result.reason}`);
       }
+      return;
+    }
+
+    if (msg.body.toLowerCase().startsWith(".kasmap")) {
+      const arg = msg.body.substring(".kasmap".length).trim();
+      const data = loadData();
+      if (!data.kas_mapping || typeof data.kas_mapping !== "object") data.kas_mapping = {};
+
+      const low = arg.toLowerCase();
+      if (!arg || low === "help") {
+        msg.reply(
+          "🗺️ *KASMAP* — hubungkan nama di sheet kas ke WhatsApp.\n\n" +
+          "• *.kasmap <Nama Sesuai Sheet>* sambil reply/tag orangnya\n" +
+          "• *.kasmap list* — lihat daftar\n" +
+          "• *.kasmap hapus <Nama>* — hapus\n\n" +
+          "Setelah dipetakan, pengingat kas akan nge-*hidetag* yang nunggak (dapat notif, tanpa tampil @nomor).",
+        );
+        return;
+      }
+
+      if (low === "list") {
+        const entries = Object.entries(data.kas_mapping);
+        if (entries.length === 0) {
+          msg.reply("Belum ada mapping.\nContoh: reply pesan orangnya lalu ketik *.kasmap Afrizal Baihaqi*");
+          return;
+        }
+        const list = entries
+          .map(([nama, jid], i) => `${i + 1}. ${nama} → ${String(jid).split("@")[0]}`)
+          .join("\n");
+        msg.reply(`🗺️ *Mapping Kas (${entries.length})*\n\n${list}`);
+        return;
+      }
+
+      if (low.startsWith("hapus")) {
+        const nama = arg.slice(5).trim();
+        if (!nama) {
+          msg.reply("Format: *.kasmap hapus <Nama>*");
+          return;
+        }
+        const key = Object.keys(data.kas_mapping).find((k) => k.toLowerCase() === nama.toLowerCase());
+        if (!key) {
+          msg.reply(`❌ "${nama}" tidak ada di mapping.`);
+          return;
+        }
+        delete data.kas_mapping[key];
+        saveData(data);
+        msg.reply(`✅ Mapping *${key}* dihapus.`);
+        return;
+      }
+
+      // Nama = argumen (token @tag dibuang). Target = orang yang di-tag atau di-reply.
+      const nama = arg.replace(/@\S+/g, " ").replace(/\s+/g, " ").trim();
+      const ctx = rawMsg.message?.extendedTextMessage?.contextInfo;
+      const targetJid =
+        (ctx?.mentionedJid && ctx.mentionedJid.length ? ctx.mentionedJid[0] : null) ||
+        ctx?.participant ||
+        null;
+
+      if (!nama) {
+        msg.reply("Tulis nama persis seperti di sheet ya.\nContoh: *.kasmap Afrizal Baihaqi* (sambil tag/reply orangnya)");
+        return;
+      }
+      if (!targetJid) {
+        msg.reply("Tag orangnya atau reply pesannya, sambil tulis nama persis seperti di sheet.\nContoh: *.kasmap Afrizal Baihaqi*");
+        return;
+      }
+
+      data.kas_mapping[nama] = targetJid;
+      saveData(data);
+      msg.reply(
+        `✅ *${nama}* sekarang terhubung ke ${String(targetJid).split("@")[0]}.\n` +
+        "Pengingat kas akan nge-hidetag dia kalau nunggak.",
+      );
       return;
     }
 
