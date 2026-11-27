@@ -2,6 +2,7 @@ const fs = require('fs');
 const puppeteer = require('puppeteer');
 const { catatAbsen } = require('./database');
 const { capMentions, isBlockedGroup, isFatalSendError, isValidGroupJid } = require('./chat-guard');
+const { queueOwnerAlert } = require('./alerts');
 
 const PUPPETEER_LAUNCH_TIMEOUT = Number(process.env.PUPPETEER_LAUNCH_TIMEOUT || 60000);
 const PUPPETEER_PROTOCOL_TIMEOUT = Number(process.env.PUPPETEER_PROTOCOL_TIMEOUT || 120000);
@@ -927,6 +928,8 @@ ${tugasText.substring(0, 5000)}`;
     } catch (err) {
         recordSyncResult(false, err);
         console.error("[ETHOL SYNC] Gagal melakukan sinkronisasi:", err);
+        // Titipkan pesan ke owner; dikirim oleh flushOwnerAlerts ketika client siap.
+        queueOwnerAlert(`Sinkronisasi ETHOL gagal.\nDetail: ${String(err?.message || err).slice(0, 300)}`, { key: 'sync' });
     } finally {
         await closeBrowser(browser);
         releaseScraperLock();

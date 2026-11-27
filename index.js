@@ -1,4 +1,6 @@
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
 const { execSync } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore } = require('@whiskeysockets/baileys');
@@ -6,6 +8,9 @@ const pino = require('pino');
 const cron = require('node-cron');
 const { loadData, saveData } = require('./src/database');
 const { checkPortal, intensiveCheckPortal, syncJadwalTugas, closeAllBrowsers } = require('./src/ethol-scraper');
+const { checkKasAndSend } = require('./src/kas-tricendes/kas-checker');
+const { backupDatabase, isValidDbFile } = require('./src/backup');
+const { sendOwnerAlert, queueOwnerAlert, flushOwnerAlerts } = require('./src/alerts');
 const { handleMessage } = require('./src/commands');
 const {
     capMentions,
@@ -66,6 +71,7 @@ async function gracefulShutdown(signal) {
     if (isShuttingDown) return;
     isShuttingDown = true;
     console.log(`[SISTEM] Menerima ${signal}. Menutup browser dan proses...`);
+    markCleanShutdown();
     await closeAllBrowsers();
     process.exit(0);
 }
@@ -98,6 +104,39 @@ const SESSION_DIR = process.env.SESSION_DIR
 const PORTAL_START_DELAY_MS = Number(process.env.PORTAL_START_DELAY_MS || 5 * 60 * 1000);
 const ETHOL_SYNC_START_DELAY_MS = Number(process.env.ETHOL_SYNC_START_DELAY_MS || 2 * 60 * 1000);
 const SCRAPER_ENABLED = process.env.SCRAPER_ENABLED !== 'false';
+
+// Penanda shutdown bersih. Kalau file ini tidak ada saat start, berarti proses
+// sebelumnya berhenti tidak normal (crash / koneksi WA putus / OOM) sehingga
+// owner perlu diberi tahu setelah bot tersambung lagi.
+const CLEAN_SHUTDOWN_MARKER = path.join(__dirname, '.runtime-clean-shutdown');
+const RUNTIME_ARMED_MARKER = path.join(__dirname, '.runtime-armed');
+let previousRunClean = true;
+try {
+    previousRunClean = fs.existsSync(CLEAN_SHUTDOWN_MARKER);
+    if (previousRunClean) fs.unlinkSync(CLEAN_SHUTDOWN_MARKER);
+} catch (err) {
+    previousRunClean = true;
+}
+// "Armed" mencegah alert palsu pada start pertama setelah fitur ini dipasang.
+const runtimeArmedBefore = fs.existsSync(RUNTIME_ARMED_MARKER);
+try {
+    fs.writeFileSync(RUNTIME_ARMED_MARKER, new Date().toISOString());
+} catch (err) {
+    // abaikan
+}
+let restartAlertPending =
+    !previousRunClean &&
+    runtimeArmedBefore &&
+    String(process.env.ALERT_ON_START || 'true') !== 'false' &&
+    fs.existsSync(SESSION_DIR);
+
+function markCleanShutdown() {
+    try {
+        fs.writeFileSync(CLEAN_SHUTDOWN_MARKER, new Date().toISOString());
+    } catch (err) {
+        // Abaikan; ini hanya penanda best-effort.
+    }
+}
 
 function normalizePhoneNumber(input) {
     if (!input) return null;
@@ -287,6 +326,11 @@ async function startBot() {
 
             console.log(`Koneksi terputus (status ${statusCode ?? '-'}): ${errorMessage}`);
             console.log('Reconnecting:', shouldReconnect);
+            // Alert owner (best-effort; bisa saja gagal karena socket sudah tutup).
+            const reasonText = shouldReconnect
+                ? `Koneksi WhatsApp terputus (status ${statusCode ?? '-'}).\nDetail: ${errorMessage}`
+                : `Sesi WhatsApp ditolak/logout (status ${statusCode ?? '-'}).\nPerlu login ulang (scan QR / pairing).`;
+            sendOwnerAlert(client, reasonText, { key: 'disconnect', cooldownMs: 10 * 60 * 1000 }).catch(() => {});
             if (shouldReconnect) {
                 if (isShuttingDown) return;
                 isShuttingDown = true;
@@ -304,6 +348,14 @@ async function startBot() {
                 isBotStarted = true;
                 verifyTargetGroup(client);
                 setupCronJobs(client);
+            }
+            if (restartAlertPending) {
+                restartAlertPending = false;
+                sendOwnerAlert(
+                    client,
+                    'Bot baru saja menyala setelah berhenti tidak normal (kemungkinan koneksi WhatsApp putus, crash, atau proses mati). Kalau ini terjadi berulang, cek log PM2.',
+                    { key: 'disconnect', cooldownMs: 10 * 60 * 1000 }
+                ).catch(() => {});
             }
         }
     });
@@ -454,6 +506,23 @@ function setupCronJobs(client) {
             scheduleTodayClasses(client);
         } catch (err) {
             console.error('Gagal menjalankan syncJadwalTugas cron:', err);
+        } finally {
+            await flushOwnerAlerts(client);
+        }
+    }, {
+        scheduled: true,
+        timezone: "Asia/Jakarta"
+    });
+
+    // Backup harian database absensi (jalan di semua mode, termasuk ATTENDANCE_ONLY).
+    cron.schedule(process.env.BACKUP_CRON || '30 23 * * *', () => {
+        const result = backupDatabase();
+        if (result.ok) {
+            console.log(`[BACKUP] absensi_data.json tersimpan (${Math.round(result.size / 1024)} KB, sisa ${result.kept} backup).`);
+        } else {
+            console.error(`[BACKUP] Gagal backup: ${result.reason}`);
+            queueOwnerAlert(`Backup database absensi gagal.\nDetail: ${result.reason}`, { key: 'backup' });
+            flushOwnerAlerts(client).catch(() => {});
         }
     }, {
         scheduled: true,
@@ -511,7 +580,10 @@ function setupCronJobs(client) {
     if (SCRAPER_ENABLED) {
         // Tunda sinkronisasi awal agar Chromium tidak berebut CPU saat WhatsApp baru connect.
         setTimeout(() => {
-            syncJadwalTugas().then(() => scheduleTodayClasses(client)).catch(console.error);
+            syncJadwalTugas()
+                .then(() => scheduleTodayClasses(client))
+                .catch(console.error)
+                .finally(() => flushOwnerAlerts(client).catch(() => {}));
         }, ETHOL_SYNC_START_DELAY_MS);
     } else {
         console.log('[SCRAPER] Sinkronisasi ETHOL dan pengecekan portal dinonaktifkan sementara (SCRAPER_ENABLED=false).');
@@ -549,6 +621,14 @@ function setupCronJobs(client) {
     }
 
     cron.schedule('0 0 * * 1', () => {
+        // Backup dulu sebelum kemungkinan reset semester menghapus rekap absen.
+        const backup = backupDatabase();
+        if (backup.ok) {
+            console.log(`[BACKUP] Backup sebelum ganti minggu tersimpan (${Math.round(backup.size / 1024)} KB).`);
+        } else {
+            console.error(`[BACKUP] Backup sebelum ganti minggu gagal: ${backup.reason}`);
+        }
+
         let data = loadData();
         let pesan = "";
 
@@ -567,6 +647,64 @@ function setupCronJobs(client) {
         saveData(data);
 
         sendPremiumAnnouncement(client, process.env.TARGET_GROUP_ID, pesan);
+    }, {
+        scheduled: true,
+        timezone: "Asia/Jakarta"
+    });
+
+    // Reminder kas mingguan. Default Minggu 19:00 WIB (sebelum minggu ganti),
+    // bisa diubah lewat KAS_REMINDER_CRON. Hanya jalan kalau ada sheet kas.
+    if (String(process.env.KAS_REMINDER_ENABLED || 'true') !== 'false') {
+        const kasConfigured = !!(loadData().kas_url || process.env.KAS_SPREADSHEET_URL);
+        if (!kasConfigured) {
+            console.log('[KAS] Reminder kas dilewati: KAS_SPREADSHEET_URL / kas_url belum diatur.');
+        } else {
+            try {
+                cron.schedule(process.env.KAS_REMINDER_CRON || '0 19 * * 0', async () => {
+                    try {
+                        const result = await checkKasAndSend(client, process.env.TARGET_GROUP_ID, false);
+                        if (result) console.log(`[KAS] ${result}`);
+                    } catch (err) {
+                        console.error('[KAS] Reminder kas gagal:', err?.message || err);
+                        queueOwnerAlert(`Reminder kas gagal dikirim.\nDetail: ${String(err?.message || err).slice(0, 300)}`, { key: 'kas' });
+                        flushOwnerAlerts(client).catch(() => {});
+                    }
+                }, { scheduled: true, timezone: 'Asia/Jakarta' });
+                console.log(`[CRON] Reminder kas aktif (${process.env.KAS_REMINDER_CRON || '0 19 * * 0'}).`);
+            } catch (err) {
+                console.error('[KAS] KAS_REMINDER_CRON tidak valid:', err?.message || err);
+            }
+        }
+    }
+
+    // Health check ringan: RAM kritis / database rusak -> alert owner.
+    cron.schedule('*/30 * * * *', () => {
+        try {
+            const minFree = Number(process.env.ALERT_MIN_FREE_MEMORY_MB || 120);
+            const freeMb = os.freemem() / 1024 / 1024;
+            if (minFree > 0 && freeMb < minFree) {
+                sendOwnerAlert(client, `RAM menipis: sisa ${freeMb.toFixed(0)} MB (ambang ${minFree} MB).`, {
+                    key: 'ram',
+                    cooldownMs: 60 * 60 * 1000,
+                }).catch(() => {});
+            }
+        } catch (err) {
+            // abaikan
+        }
+
+        try {
+            const { DB_PATH } = require('./src/backup');
+            if (fs.existsSync(DB_PATH) && !isValidDbFile(DB_PATH)) {
+                sendOwnerAlert(client, 'File absensi_data.json terdeteksi rusak / tidak bisa dibaca. Segera cek backup terakhir.', {
+                    key: 'db',
+                    cooldownMs: 6 * 60 * 60 * 1000,
+                }).catch(() => {});
+            }
+        } catch (err) {
+            // abaikan
+        }
+
+        flushOwnerAlerts(client).catch(() => {});
     }, {
         scheduled: true,
         timezone: "Asia/Jakarta"

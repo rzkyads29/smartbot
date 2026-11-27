@@ -7,7 +7,8 @@ const {
 const { GoogleGenAI } = require("@google/genai");
 const googleTTS = require("google-tts-api");
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
-const { checkKasAndSend } = require("./kas-tricendes/kas-checker");
+const { checkKasAndSend, sendKasRekap } = require("./kas-tricendes/kas-checker");
+const { backupDatabase } = require("./backup");
 const { buildBotStatusMessage } = require("./bot-status");
 const {
   areReactionsEnabled,
@@ -690,23 +691,16 @@ Halo! Aku SmartBot. Ketik *.menu* untuk membuka menu fitur bot.`;
     }
     return;
   }
-  if (msg.body.toLowerCase() === ".testkas") {
-    msg.reply(
-      "⏳ Memulai pengecekan data kas dari Google Sheets... Silakan tunggu.",
-    );
+  if (msg.body.toLowerCase() === ".kas" || msg.body.toLowerCase() === ".rekapkas") {
+    msg.reply("⏳ Mengambil rekap kas dari Google Sheets... Silakan tunggu.");
     try {
-      const result = await checkKasAndSend(
-        client,
-        process.env.TARGET_GROUP_ID,
-        true,
-      );
-      if (result) {
-        msg.reply(result);
-      }
+      const summary = await sendKasRekap(client, _chatId);
+      console.log(`[KAS] Rekap dikirim: ${summary.debtors.length}/${summary.totalStudents} mahasiswa belum lunas.`);
     } catch (err) {
-      console.error(err);
-      msg.reply(`❌ Gagal memproses kas: ${err.message}`);
+      console.error("[KAS] Gagal rekap:", err?.message || err);
+      msg.reply(`❌ Gagal mengambil rekap kas: ${err.message}`);
     }
+    return;
   }
 
   if (
@@ -744,26 +738,29 @@ Halo! Aku SmartBot. Ketik *.menu* untuk membuka menu fitur bot.`;
 19. *Otomatisasi Absen*: Bot otomatis tag all jika ada absen.
 20. *.allabsensi* : Rekap absen minggu ini.
 21. *.cekjadwal* : Cek jadwal aktif hari ini.
-22. *.stiker* : Mengubah foto menjadi stiker.
-23. *.saudio* / *.stikeraudio* : (Caption/reply video) Sticker + audio dari video bersuara.
-24. *!ping* : Mengecek kecepatan respon bot.
-25. *.runtime* : Melihat uptime bot.
-26. *.status* : Dashboard kondisi bot (khusus admin).
-27. *.owner* : Menampilkan info owner bot.
+22. *.kas* : Rekap kas kelas dari Google Sheets.
+23. *.stiker* : Mengubah foto menjadi stiker.
+24. *.saudio* / *.stikeraudio* : (Caption/reply video) Sticker + audio dari video bersuara.
+25. *!ping* : Mengecek kecepatan respon bot.
+26. *.runtime* : Melihat uptime bot.
+27. *.status* : Dashboard kondisi bot (khusus admin).
+28. *.owner* : Menampilkan info owner bot.
 
 *👑 KHUSUS ADMIN GRUP*
-28. *.tambah_tugas <Matkul> | <Deskripsi> | <YYYY-MM-DD>*
-29. *.hapus_tugas <Nomor>*
-30. *.jadwaledit <Hari> | <Matkul> | <Jam> | <Ruang>*
-31. *.hapusjadwal <Hari> | <Matkul>*
-32. *.hidetag <Pesan>*
-33. *.setminggu <Angka>*
-34. *.hapusrekap <Tanggal>*
+29. *.tambah_tugas <Matkul> | <Deskripsi> | <YYYY-MM-DD>*
+30. *.hapus_tugas <Nomor>*
+31. *.jadwaledit <Hari> | <Matkul> | <Jam> | <Ruang>*
+32. *.hapusjadwal <Hari> | <Matkul>*
+33. *.hidetag <Pesan>*
+34. *.setminggu <Angka>*
+35. *.hapusrekap <Tanggal>*
+36. *.reminderkas* : Kirim pengingat kas ke grup.
+37. *.backup* : Backup database absensi sekarang.
 
 *👑 KHUSUS OWNER*
-35. *.resetbot <Semester>*
+38. *.resetbot <Semester>*
 
-_Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder tugas setiap pagi (07:00 WIB)!_`;
+_Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas setiap pagi (07:00 WIB), reminder kas mingguan, dan backup database harian._`;
 
     if (isMenuCommand && isButtonMenuEnabledForChat(msg.from)) {
       try {
@@ -1157,7 +1154,10 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
     ".hidetag",
     ".hapusrekap",
     ".clearabsen", ".hapusabsen",
-    ".syncjadwal"
+    ".syncjadwal",
+    ".testkas",
+    ".reminderkas",
+    ".backup"
   ];
   const isCmdAdmin = adminCommands.some((cmd) =>
     msg.body.toLowerCase().startsWith(cmd),
@@ -1203,6 +1203,29 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, dan punya sistem auto-reminder
       } catch (err) {
         console.error("[STATUS] Gagal membuat status:", err?.message || err);
         await msg.reply("❌ Gagal mengambil status bot.");
+      }
+      return;
+    }
+
+    if (msg.body.toLowerCase() === ".testkas" || msg.body.toLowerCase() === ".reminderkas") {
+      msg.reply("⏳ Mengirim pengingat kas ke grup... Silakan tunggu.");
+      try {
+        const result = await checkKasAndSend(client, process.env.TARGET_GROUP_ID, true);
+        if (result) msg.reply(result);
+      } catch (err) {
+        console.error("[KAS] Gagal reminder:", err?.message || err);
+        msg.reply(`❌ Gagal memproses kas: ${err.message}`);
+      }
+      return;
+    }
+
+    if (msg.body.toLowerCase() === ".backup") {
+      const result = backupDatabase();
+      if (result.ok) {
+        const name = String(result.path).split(/[\\/]/).pop();
+        msg.reply(`✅ Backup database tersimpan.\n\n📄 ${name}\n📦 ${Math.round(result.size / 1024)} KB\n🗂️ Total backup disimpan: ${result.kept}`);
+      } else {
+        msg.reply(`❌ Backup gagal: ${result.reason}`);
       }
       return;
     }

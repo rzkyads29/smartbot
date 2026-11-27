@@ -11,3 +11,6 @@ package-lock.json
 test-kas.js
 *.log
 .env
+backups/
+.runtime-clean-shutdown
+.runtime-armed
