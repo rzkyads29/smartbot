@@ -49,6 +49,11 @@ async function getKasSummary() {
     const sheetUrl = dbData.kas_url || process.env.KAS_SPREADSHEET_URL;
     const paymentInfo = dbData.kas_payment_info || process.env.KAS_PAYMENT_INFO || 'Belum diatur';
     const mapping = dbData.kas_mapping || {};
+    // Lookup mapping tanpa peduli huruf besar/kecil atau spasi di ujung.
+    const mappingLower = {};
+    for (const [key, value] of Object.entries(mapping)) {
+        mappingLower[String(key).toLowerCase().trim()] = value;
+    }
     const currentWeek = dbData.minggu_ke || 1;
 
     if (!sheetUrl) {
@@ -123,7 +128,7 @@ async function getKasSummary() {
                 nrp,
                 unpaidWeeks,
                 totalOwed,
-                waId: mapping[name] || null,
+                waId: mapping[name] || mappingLower[String(name).toLowerCase().trim()] || null,
             });
         }
     }
