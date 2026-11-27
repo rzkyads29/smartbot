@@ -77,13 +77,20 @@ let soundStickerChanged = false;
 const encodePattern = /const encodeWAMessage = \(message\) => \(\(0, exports\.writeRandomPadMax16\)\(WAProto_1\.proto\.Message\.encode\(message\)\.finish\(\)\)\);/;
 
 const soundWireMarker = 'const nestedSticker = Buffer.concat([';
+// Versi lama sempat menghapus marker tepat setelah encode pertama. Akibatnya
+// encode kedua (penerima / device sendiri) kehilangan audio sound sticker.
+const staleSoundMarker = 'delete sticker.soundStickerAudio;';
 
-if (generics.includes(soundWireMarker)) {
+if (generics.includes(soundWireMarker) && !generics.includes(staleSoundMarker)) {
     console.log('[PATCH] Sound sticker sudah dipatch (wire terbaru).');
 } else {
     // Patch lama menaruh field 24/26 di level Message. Hapus dulu supaya
     // encodePattern cocok lagi saat npm run patch-baileys diulang.
-    if (generics.includes('const marker = sticker && sticker.soundStickerAudio;')) {
+    if (
+        generics.includes(soundWireMarker) ||
+        generics.includes(staleSoundMarker) ||
+        generics.includes('const marker = sticker && sticker.soundStickerAudio;')
+    ) {
         const patchedPattern = /const encodeWAMessage = \(message\) => \{[\s\S]*?\n\};\nexports\.encodeWAMessage = encodeWAMessage;/;
         generics = generics.replace(
             patchedPattern,
