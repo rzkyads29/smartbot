@@ -21,11 +21,17 @@ function fetchSheetData(url) {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
+                if (res.statusCode && res.statusCode >= 400) {
+                    reject(new Error(`Google Sheets menolak permintaan (HTTP ${res.statusCode}). Cek KAS_SPREADSHEET_URL.`));
+                    return;
+                }
                 try {
                     // Google Sheets mengembalikan string JSON dibungkus fungsi google.visualization.Query.setResponse
                     const match = data.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);/);
                     if (match && match[1]) {
                         resolve(JSON.parse(match[1]));
+                    } else if (/<html/i.test(data)) {
+                        reject(new Error('Sheet kas tidak bisa diakses (kemungkinan sudah dihapus atau privat). Pastikan link di-share "Anyone with the link can view".'));
                     } else {
                         reject(new Error('Format respons Google Sheets tidak valid.'));
                     }
