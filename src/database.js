@@ -20,6 +20,7 @@ function loadData() {
     if (!data.jadwal || typeof data.jadwal !== 'object') data.jadwal = {};
     if (!data.daftar_jadwal || typeof data.daftar_jadwal !== 'object') data.daftar_jadwal = {};
     if (!Array.isArray(data.daftar_tugas)) data.daftar_tugas = [];
+    if (!data.koin || typeof data.koin !== 'object') data.koin = {};
 
     const minggu = Number(data.minggu_ke);
     if (!Number.isFinite(minggu) || minggu < 1) data.minggu_ke = 1;

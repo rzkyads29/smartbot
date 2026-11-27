@@ -182,23 +182,43 @@ Ketik *.menu* untuk kembali.`,
   },
   ".menu_hiburan": {
     header: "🎮 MENU HIBURAN",
-    title: "Pilih menu hiburan:\n\n• Susun kata\n• Truth or Dare\n• Cek hoki",
+    title: "Pilih menu hiburan:\n\n• Game baru: tebak angka, kuis, family 100\n• Klasik: susun kata, truth or dare, cek hoki",
     footer: "Ketik .menu untuk kembali ke menu utama",
     buttons: [
-      ["🧩 Susun Kata", ".susunkata"],
-      ["🎭 Truth or Dare", ".truth"],
-      ["🍀 Cek Hoki", ".cekhoki"],
+      ["🔢 Tebak Angka", ".tebakangka"],
+      ["🧠 Kuis", ".kuis"],
+      ["👨‍👩‍👧 Family 100", ".family100"],
     ],
     rows: [
+      { title: "🔢 Tebak Angka", description: "Tebak angka 1-100 dengan petunjuk", id: ".tebakangka" },
+      { title: "🧠 Kuis", description: "Kuis pilihan ganda", id: ".kuis" },
+      { title: "👨‍👩‍👧 Family 100", description: "Tebak jawaban populer", id: ".family100" },
+      { title: "✊ Suit", description: "Gunting batu kertas lawan bot", id: ".suit" },
+      { title: "🎲 Dadu", description: "Lempar dua dadu", id: ".dadu" },
+      { title: "🎰 Slot", description: "Coba keberuntunganmu", id: ".slot" },
       { title: "🧩 Susun Kata", description: "Main tebak kata di grup", id: ".susunkata" },
+      { title: "🎵 Tebak Lagu", description: "Tebak judul lagu dari lirik", id: ".tebaklagu" },
+      { title: "🏆 Top Koin", description: "Papan peringkat koin", id: ".topkoin" },
       { title: "🎭 Truth or Dare", description: "Main truth or dare", id: ".truth" },
-      { title: "🍀 Cek Hoki", description: "Cek persentase hoki hari ini", id: ".cekhoki" },
     ],
     fallbackText: `🎮 *MENU HIBURAN*
 
-1. *.susunkata* — main tebak kata
-2. *.truth* — truth or dare
-3. *.cekhoki* — cek hoki
+*Game baru:*
+1. *.tebakangka* — tebak angka 1-100
+2. *.kuis* — kuis pilihan ganda
+3. *.family100* — tebak jawaban populer
+4. *.suit <batu|gunting|kertas>* — suit lawan bot
+5. *.dadu* — lempar dadu
+6. *.slot* — slot machine
+
+*Klasik:*
+7. *.susunkata* — susun kata
+8. *.tebaklagu* — tebak judul lagu
+9. *.cekhoki* — cek hoki
+
+*Koin:*
+10. *.koin* — lihat koin kamu
+11. *.topkoin* — papan peringkat
 
 Ketik *.menu* untuk kembali.`,
   },
@@ -416,6 +436,64 @@ const generateAIContent = async (params) => {
 
 // State untuk menyimpan sesi game grup
 const activeGames = {};
+
+// Koin game disimpan di absensi_data.json -> data.koin[userId].
+function awardKoin(userId, min = 5, max = 15) {
+  if (!userId) return 0;
+  const amount = Math.floor(Math.random() * (max - min + 1)) + min;
+  const data = loadData();
+  if (!data.koin || typeof data.koin !== "object") data.koin = {};
+  data.koin[userId] = (data.koin[userId] || 0) + amount;
+  saveData(data);
+  return amount;
+}
+
+function getKoin(userId) {
+  if (!userId) return 0;
+  const data = loadData();
+  return Number((data.koin && data.koin[userId]) || 0);
+}
+
+// Soal kuis: jawaban = index opsi yang benar.
+const KUIS_BANK = [
+  { soal: "Ibukota Indonesia adalah?", opsi: ["Jakarta", "Bandung", "Surabaya", "Medan"], jawaban: 0 },
+  { soal: "Hasil dari 7 x 8 adalah?", opsi: ["54", "56", "58", "64"], jawaban: 1 },
+  { soal: "Planet terdekat dari Matahari adalah?", opsi: ["Venus", "Bumi", "Merkurius", "Mars"], jawaban: 2 },
+  { soal: "Siapa penemu lampu pijar?", opsi: ["Nikola Tesla", "Thomas Edison", "Albert Einstein", "Isaac Newton"], jawaban: 1 },
+  { soal: "Bahasa pemrograman yang identik dengan web adalah?", opsi: ["Python", "JavaScript", "C++", "Java"], jawaban: 1 },
+  { soal: "Jumlah pemain sepak bola satu tim di lapangan?", opsi: ["9", "10", "11", "12"], jawaban: 2 },
+  { soal: "Air membeku pada suhu?", opsi: ["0 derajat C", "10 derajat C", "-10 derajat C", "100 derajat C"], jawaban: 0 },
+  { soal: "Kota yang dijuluki Kota Pahlawan?", opsi: ["Surabaya", "Malang", "Semarang", "Bandung"], jawaban: 0 },
+  { soal: "Siapa proklamator kemerdekaan Indonesia selain Soekarno?", opsi: ["Moh. Hatta", "Soeharto", "Sutan Sjahrir", "Tan Malaka"], jawaban: 0 },
+  { soal: "1 GB sama dengan berapa MB?", opsi: ["100", "512", "1024", "2048"], jawaban: 2 },
+];
+
+// Family 100: tebakan populer (dibandingkan huruf kecil semua).
+const FAMILY100_BANK = [
+  {
+    soal: "Sebutkan hal yang biasa dibawa mahasiswa ke kampus!",
+    jawaban: ["tas", "laptop", "buku", "ponsel", "botol minum", "dompet", "charger", "jaket"],
+  },
+  {
+    soal: "Sebutkan makanan khas Indonesia!",
+    jawaban: ["nasi goreng", "rendang", "sate", "bakso", "soto", "gado-gado", "nasi padang", "martabak"],
+  },
+  {
+    soal: "Sebutkan aplikasi yang sering dipakai mahasiswa!",
+    jawaban: ["whatsapp", "instagram", "tiktok", "youtube", "google", "shopee", "spotify", "twitter"],
+  },
+  {
+    soal: "Sebutkan hal yang bikin mahasiswa stres!",
+    jawaban: ["tugas", "deadline", "ujian", "dosen", "nilai", "skripsi", "revisi", "uang"],
+  },
+  {
+    soal: "Sebutkan kegiatan saat akhir pekan!",
+    jawaban: ["tidur", "nonton", "main game", "jalan-jalan", "olahraga", "belanja", "nongkrong", "belajar"],
+  },
+];
+
+const SUIT_BEATS = { batu: "gunting", gunting: "kertas", kertas: "batu" };
+const SLOT_SYMBOLS = ["🍒", "🍋", "🍇", "🔔", "💎", "7️⃣"];
 
 // State untuk anti-spam
 const userCooldowns = new Map();
@@ -635,8 +713,8 @@ async function handleMessage(client, rawMsg, reloadScheduler = null) {
   const chatId = msg.from;
 
   if (activeGames[chatId]) {
-    let game = activeGames[chatId];
-    let pJawaban = msg.body.toLowerCase().trim();
+    const game = activeGames[chatId];
+    const pJawaban = msg.body.toLowerCase().trim();
 
     if (pJawaban === "nyerah") {
       if (game.type === "caklontong") {
@@ -651,21 +729,83 @@ async function handleMessage(client, rawMsg, reloadScheduler = null) {
         );
         delete activeGames[chatId];
         return;
+      } else if (game.type === "tebakangka") {
+        msg.reply(`Wooo nyerah!\n\nAngkanya adalah *${game.jawaban}*.`);
+        delete activeGames[chatId];
+        return;
+      } else if (game.type === "kuis") {
+        msg.reply(`Wooo nyerah!\n\nJawabannya: *${game.opsi[game.jawabanIndex].toUpperCase()}*`);
+        delete activeGames[chatId];
+        return;
+      } else if (game.type === "family100") {
+        msg.reply(`Wooo nyerah!\n\nSemua jawaban populer:\n- ${game.jawaban.map((j) => j.toUpperCase()).join("\n- ")}`);
+        delete activeGames[chatId];
+        return;
+      }
+    }
+
+    // Tebak angka 1-100: balas "lebih besar / lebih kecil".
+    if (game.type === "tebakangka") {
+      const tebakan = Number(pJawaban);
+      if (Number.isInteger(tebakan) && tebakan >= 1 && tebakan <= 100) {
+        if (tebakan === game.jawaban) {
+          const reward = awardKoin(_senderId);
+          msg.reply(`🎉 BENAR! Angkanya *${game.jawaban}*.\n\n💰 +${reward} koin (total: ${getKoin(_senderId)})\n(Game Selesai)`);
+          delete activeGames[chatId];
+          return;
+        }
+        game.percobaan = (game.percobaan || 0) + 1;
+        const hint = tebakan < game.jawaban ? "⬆️ Angka lebih *BESAR*" : "⬇️ Angka lebih *KECIL*";
+        msg.reply(`${hint} dari ${tebakan}. (percobaan ke-${game.percobaan})`);
+        return;
+      }
+    }
+
+    // Kuis pilihan ganda: jawab A/B/C/D atau 1/2/3/4.
+    if (game.type === "kuis") {
+      const map = { a: 0, b: 1, c: 2, d: 3, "1": 0, "2": 1, "3": 2, "4": 3 };
+      if (Object.prototype.hasOwnProperty.call(map, pJawaban)) {
+        const idx = map[pJawaban];
+        if (idx === game.jawabanIndex) {
+          const reward = awardKoin(_senderId);
+          msg.reply(`🎉 BENAR! Jawabannya *${game.opsi[game.jawabanIndex]}*.\n\n💰 +${reward} koin (total: ${getKoin(_senderId)})\n(Game Selesai)`);
+        } else {
+          msg.reply(`❌ Salah! Jawaban yang benar: *${game.opsi[game.jawabanIndex]}*.\n(Game Selesai)`);
+        }
+        delete activeGames[chatId];
+        return;
+      }
+    }
+
+    // Family 100: cocokkan dengan daftar jawaban populer.
+    if (game.type === "family100") {
+      const found = game.jawaban.find((j) => j.toLowerCase() === pJawaban);
+      if (found && !game.terjawab.includes(found)) {
+        game.terjawab.push(found);
+        if (game.terjawab.length >= game.jawaban.length) {
+          const reward = awardKoin(_senderId, 15, 30);
+          msg.reply(`🎉 SEMUA JAWABAN KETEMU!\n\n- ${game.terjawab.map((j) => j.toUpperCase()).join("\n- ")}\n\n💰 +${reward} koin (total: ${getKoin(_senderId)})\n(Game Selesai)`);
+          delete activeGames[chatId];
+        } else {
+          msg.reply(`✅ *${found.toUpperCase()}* BENAR! (${game.terjawab.length}/${game.jawaban.length})\n\nSudah ketemu: ${game.terjawab.map((j) => j.toUpperCase()).join(", ")}`);
+        }
+        return;
       }
     }
 
     if (pJawaban === game.jawaban) {
+      const reward = awardKoin(_senderId);
       if (game.type === "caklontong") {
         msg.reply(
-          `🎉 BENAR SEKALI!\n\nJawaban: *${game.jawaban.toUpperCase()}*\nAlasan: ${game.alasan}`,
+          `🎉 BENAR SEKALI!\n\nJawaban: *${game.jawaban.toUpperCase()}*\nAlasan: ${game.alasan}\n\n💰 +${reward} koin (total: ${getKoin(_senderId)})`,
         );
       } else if (game.type === "tebaklagu") {
         msg.reply(
-          `🎵 YUHUUU BENAR SEKALI!\n\nJudul lagunya adalah: *${game.jawaban.toUpperCase()}* 🎤`,
+          `🎵 YUHUUU BENAR SEKALI!\n\nJudul lagunya adalah: *${game.jawaban.toUpperCase()}* 🎤\n\n💰 +${reward} koin (total: ${getKoin(_senderId)})`,
         );
       } else {
         msg.reply(
-          `🎉 BENAR SEKALI!\n\nSelamat, tebakan kata *${game.jawaban.toUpperCase()}* sangat tepat!\n(Game Selesai)`,
+          `🎉 BENAR SEKALI!\n\nSelamat, tebakan kata *${game.jawaban.toUpperCase()}* sangat tepat!\n\n💰 +${reward} koin (total: ${getKoin(_senderId)})\n(Game Selesai)`,
         );
       }
       delete activeGames[chatId];
@@ -734,43 +874,55 @@ Halo! Aku SmartBot. Ketik *.menu* untuk membuka menu fitur bot.`;
 5. *.suara <teks>* : Teks jadi Voice Note.
 6. *.ringkas* : (Reply pesan) Ringkas teks panjang.
 7. *.tl <id/en>* : (Reply pesan) Translate teks.
-8. *.susunkata* : Main tebak kata acak di grup.
-9. *.khodam <nama>* : Cek khodam pendamping.
-10. *.truth* / *.dare* : Main Truth or Dare.
-11. *.jodoh @tag1 @tag2* : Ramal kecocokan jodoh.
-12. *.roasting @tag* : Roasting temanmu.
-13. *.gombal @tag* : Kirim gombalan maut.
-14. *.caklontong* : Tebak-tebakan logika ala WIB.
-15. *.cekhoki* : Cek persentase hoki harian.
-16. *.meme <atas>|<bawah>* : Bikin meme dari gambar.
-17. *.nulis <teks>* : Nulis otomatis di buku.
-18. *.tebaklagu* : Main tebak judul lagu.
+
+*🎮 GAME BARU*
+8. *.tebakangka* : Tebak angka 1-100 dengan petunjuk.
+9. *.kuis* : Kuis pilihan ganda A/B/C/D.
+10. *.family100* : Tebak jawaban paling populer.
+11. *.suit <batu|gunting|kertas>* : Suit lawan bot.
+12. *.dadu* : Lempar dua dadu.
+13. *.slot* : Slot machine, coba hoki.
+14. *.koin* : Lihat koin kamu.
+15. *.topkoin* : Papan peringkat koin.
+
+*🎲 GAME KLASIK*
+16. *.susunkata* : Main tebak kata acak di grup.
+17. *.tebaklagu* : Main tebak judul lagu.
+18. *.caklontong* : Tebak-tebakan logika ala WIB.
+19. *.khodam <nama>* : Cek khodam pendamping.
+20. *.truth* / *.dare* : Main Truth or Dare.
+21. *.jodoh @tag1 @tag2* : Ramal kecocokan jodoh.
+22. *.roasting @tag* : Roasting temanmu.
+23. *.gombal @tag* : Kirim gombalan maut.
+24. *.cekhoki* : Cek persentase hoki harian.
+25. *.meme <atas>|<bawah>* : Bikin meme dari gambar.
+26. *.nulis <teks>* : Nulis otomatis di buku.
 
 *🔧 FITUR UTAMA*
-19. *Otomatisasi Absen*: Bot otomatis tag all jika ada absen.
-20. *.allabsensi* : Rekap absen minggu ini.
-21. *.cekjadwal* : Cek jadwal aktif hari ini.
-22. *.kas* : Rekap kas kelas dari Google Sheets.
-23. *.stiker* : Mengubah foto menjadi stiker.
-24. *.saudio* / *.stikeraudio* : (Caption/reply video) Sticker + audio dari video bersuara.
-25. *!ping* : Mengecek kecepatan respon bot.
-26. *.runtime* : Melihat uptime bot.
-27. *.status* : Dashboard kondisi bot (khusus admin).
-28. *.owner* : Menampilkan info owner bot.
+27. *Otomatisasi Absen*: Bot otomatis tag all jika ada absen.
+28. *.allabsensi* : Rekap absen minggu ini.
+29. *.cekjadwal* : Cek jadwal aktif hari ini.
+30. *.kas* : Rekap kas kelas dari Google Sheets.
+31. *.stiker* : Mengubah foto menjadi stiker.
+32. *.saudio* / *.stikeraudio* : (Caption/reply video) Sticker + audio dari video bersuara.
+33. *!ping* : Mengecek kecepatan respon bot.
+34. *.runtime* : Melihat uptime bot.
+35. *.status* : Dashboard kondisi bot (khusus admin).
+36. *.owner* : Menampilkan info owner bot.
 
 *👑 KHUSUS ADMIN GRUP*
-29. *.tambah_tugas <Matkul> | <Deskripsi> | <YYYY-MM-DD>*
-30. *.hapus_tugas <Nomor>*
-31. *.jadwaledit <Hari> | <Matkul> | <Jam> | <Ruang>*
-32. *.hapusjadwal <Hari> | <Matkul>*
-33. *.hidetag <Pesan>*
-34. *.setminggu <Angka>*
-35. *.hapusrekap <Tanggal>*
-36. *.reminderkas* : Kirim pengingat kas ke grup.
-37. *.backup* : Backup database absensi sekarang.
+37. *.tambah_tugas <Matkul> | <Deskripsi> | <YYYY-MM-DD>*
+38. *.hapus_tugas <Nomor>*
+39. *.jadwaledit <Hari> | <Matkul> | <Jam> | <Ruang>*
+40. *.hapusjadwal <Hari> | <Matkul>*
+41. *.hidetag <Pesan>*
+42. *.setminggu <Angka>*
+43. *.hapusrekap <Tanggal>*
+44. *.reminderkas* : Kirim pengingat kas ke grup.
+45. *.backup* : Backup database absensi sekarang.
 
 *👑 KHUSUS OWNER*
-38. *.resetbot <Semester>*
+46. *.resetbot <Semester>*
 
 _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas setiap pagi (07:00 WIB), reminder kas mingguan, dan backup database harian._`;
 
@@ -1710,6 +1862,115 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
     } catch (err) {
       msg.reply("Maaf, AI gagal menerjemahkan teks tersebut.");
     }
+  }
+
+  // ===== GAME BARU =====
+  if (msg.body.toLowerCase().startsWith(".suit")) {
+    const raw = msg.body.substring(".suit".length).trim().toLowerCase();
+    const map = { b: "batu", g: "gunting", k: "kertas", batu: "batu", gunting: "gunting", kertas: "kertas", rock: "batu", paper: "kertas", scissors: "gunting" };
+    const pilihan = map[raw];
+    if (!pilihan) {
+      msg.reply("Format: *.suit batu|gunting|kertas*\nContoh: .suit batu");
+      return;
+    }
+    const pilihanBot = ["batu", "gunting", "kertas"][Math.floor(Math.random() * 3)];
+    let hasil;
+    if (pilihan === pilihanBot) {
+      hasil = "🤝 *SERI!*";
+    } else if (SUIT_BEATS[pilihan] === pilihanBot) {
+      const reward = awardKoin(_senderId, 3, 8);
+      hasil = `🎉 *KAMU MENANG!* +${reward} koin (total: ${getKoin(_senderId)})`;
+    } else {
+      hasil = "😈 *BOT MENANG!* Coba lagi!";
+    }
+    msg.reply(`✊✋✌️ *SUIT*\n\nKamu: *${pilihan}*\nBot: *${pilihanBot}*\n\n${hasil}`);
+    return;
+  }
+
+  if (msg.body.toLowerCase() === ".dadu") {
+    const d1 = Math.floor(Math.random() * 6) + 1;
+    const d2 = Math.floor(Math.random() * 6) + 1;
+    const total = d1 + d2;
+    let bonus = "";
+    if (d1 === 6 && d2 === 6) bonus = "\n🎉 *DOUBLE SIX!* Hoki banget!";
+    else if (d1 === d2) bonus = "\n✨ Dapat angka kembar!";
+    msg.reply(`🎲 *LEMPAR DADU*\n\nDadu 1: *${d1}*\nDadu 2: *${d2}*\nTotal: *${total}*${bonus}`);
+    return;
+  }
+
+  if (msg.body.toLowerCase() === ".slot") {
+    const spin = () => SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+    const r = [spin(), spin(), spin()];
+    const line = r.join(" | ");
+    if (r[0] === r[1] && r[1] === r[2]) {
+      const reward = awardKoin(_senderId, 15, 40);
+      msg.reply(`🎰 *SLOT MACHINE* 🎰\n\n[ ${line} ]\n\n🎉 *JACKPOT!* +${reward} koin (total: ${getKoin(_senderId)})`);
+    } else if (r[0] === r[1] || r[1] === r[2] || r[0] === r[2]) {
+      const reward = awardKoin(_senderId, 3, 8);
+      msg.reply(`🎰 *SLOT MACHINE* 🎰\n\n[ ${line} ]\n\n✨ Dua simbol sama! +${reward} koin (total: ${getKoin(_senderId)})`);
+    } else {
+      msg.reply(`🎰 *SLOT MACHINE* 🎰\n\n[ ${line} ]\n\n😅 Belum hoki, coba lagi!`);
+    }
+    return;
+  }
+
+  if (msg.body.toLowerCase() === ".tebakangka") {
+    const chatId = msg.from;
+    if (activeGames[chatId]) {
+      msg.reply("Masih ada game yang belum selesai di obrolan ini! Selesaikan dulu ya (atau ketik *nyerah*).");
+      return;
+    }
+    const angka = Math.floor(Math.random() * 100) + 1;
+    activeGames[chatId] = { type: "tebakangka", jawaban: angka, percobaan: 0 };
+    msg.reply("🔢 *TEBAK ANGKA* 🔢\n\nAku sudah pilih angka antara *1 sampai 100*.\nTebak angkanya! Aku kasih petunjuk lebih besar/kecil.\n\nKetik *nyerah* kalau menyerah.");
+    return;
+  }
+
+  if (msg.body.toLowerCase() === ".kuis") {
+    const chatId = msg.from;
+    if (activeGames[chatId]) {
+      msg.reply("Masih ada game yang belum selesai di obrolan ini! Selesaikan dulu ya (atau ketik *nyerah*).");
+      return;
+    }
+    const q = KUIS_BANK[Math.floor(Math.random() * KUIS_BANK.length)];
+    activeGames[chatId] = { type: "kuis", jawaban: q.opsi[q.jawaban], jawabanIndex: q.jawaban, opsi: q.opsi };
+    const opsiText = q.opsi.map((o, i) => `${"ABCD"[i]}. ${o}`).join("\n");
+    msg.reply(`🧠 *KUIS PILIHAN GANDA* 🧠\n\n${q.soal}\n\n${opsiText}\n\nJawab dengan *A/B/C/D* (atau 1/2/3/4).`);
+    return;
+  }
+
+  if (msg.body.toLowerCase() === ".family100") {
+    const chatId = msg.from;
+    if (activeGames[chatId]) {
+      msg.reply("Masih ada game yang belum selesai di obrolan ini! Selesaikan dulu ya (atau ketik *nyerah*).");
+      return;
+    }
+    const q = FAMILY100_BANK[Math.floor(Math.random() * FAMILY100_BANK.length)];
+    activeGames[chatId] = { type: "family100", jawaban: q.jawaban.slice(), terjawab: [] };
+    msg.reply(`👨‍👩‍👧 *FAMILY 100* 👨‍👩‍👧\n\n${q.soal}\n\nAda *${q.jawaban.length} jawaban populer*. Sebutkan satu per satu!\nKetik *nyerah* untuk melihat semua jawaban.`);
+    return;
+  }
+
+  if (msg.body.toLowerCase() === ".koin") {
+    msg.reply(`💰 *KOIN KAMU*\n\nTotal koin: *${getKoin(_senderId)}*\n\nMain game (.kuis, .tebakangka, .family100, .susunkata, .caklontong, .tebaklagu, .suit, .slot) untuk menambah koin!`);
+    return;
+  }
+
+  if (msg.body.toLowerCase() === ".topkoin" || msg.body.toLowerCase() === ".top") {
+    const data = loadData();
+    const koin = data.koin || {};
+    const rows = Object.entries(koin)
+      .filter(([, v]) => Number(v) > 0)
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 10);
+    if (rows.length === 0) {
+      msg.reply("Belum ada yang punya koin. Jadilah yang pertama dengan main game!");
+      return;
+    }
+    const medal = ["🥇", "🥈", "🥉"];
+    const list = rows.map(([id, v], i) => `${medal[i] || `${i + 1}.`} ${String(id).split("@")[0]} — *${v}* koin`).join("\n");
+    msg.reply(`🏆 *TOP 10 KOIN* 🏆\n\n${list}`);
+    return;
   }
 
   if (msg.body.toLowerCase() === ".susunkata") {
