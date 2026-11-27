@@ -1331,6 +1331,7 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
     ".testkas",
     ".reminderkas",
     ".kasmap",
+    ".ksmap",
     ".backup"
   ];
   const isCmdAdmin = adminCommands.some((cmd) =>
@@ -1404,8 +1405,10 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
       return;
     }
 
-    if (msg.body.toLowerCase().startsWith(".kasmap")) {
-      const arg = msg.body.substring(".kasmap".length).trim();
+    // Terima ".kasmap" dan varian typo ".ksmap" (huruf "a" sering terlewat).
+    const kasmapMatch = msg.body.match(/^\s*\.k(a)?smap\b/i);
+    if (kasmapMatch) {
+      const arg = msg.body.substring(kasmapMatch[0].length).trim();
       const data = loadData();
       if (!data.kas_mapping || typeof data.kas_mapping !== "object") data.kas_mapping = {};
 
