@@ -1,23 +1,77 @@
 const https = require('https');
 const { loadData } = require('../database');
 
-function getGvizUrl(inputUrl) {
-    const idMatch = inputUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    const gidMatch = inputUrl.match(/gid=([0-9]+)/);
-    if (idMatch && idMatch[1]) {
-        let gvizUrl = `https://docs.google.com/spreadsheets/d/${idMatch[1]}/gviz/tq?tqx=out:json`;
-        if (gidMatch && gidMatch[1]) {
-            gvizUrl += `&gid=${gidMatch[1]}`;
-        }
-        return gvizUrl;
-    }
-    return inputUrl;
+const USER_AGENT = 'Mozilla/5.0 (compatible; SmartBot/1.0)';
+// Cache daftar tab (nama + gid) supaya tidak fetch berulang tiap .kas.
+const TAB_CACHE_MS = 30 * 60 * 1000;
+let tabCache = { id: null, at: 0, tabs: [] };
+
+function getSpreadsheetId(url) {
+    const idMatch = String(url || '').match(/\/d\/([a-zA-Z0-9-_]+)/);
+    return idMatch ? idMatch[1] : null;
 }
 
-function fetchSheetData(url) {
+function httpGet(url) {
     return new Promise((resolve, reject) => {
-        const gvizUrl = getGvizUrl(url);
-        https.get(gvizUrl, (res) => {
+        https.get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
+            let body = '';
+            res.on('data', (chunk) => { body += chunk; });
+            res.on('end', () => resolve({ statusCode: res.statusCode, body }));
+        }).on('error', reject);
+    });
+}
+
+function normalizeSheetName(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// Ambil daftar seluruh tab spreadsheet + gid dari halaman htmlview publik.
+// Contoh nama tab: "sem 1", "sem 2", ... (dipakai memilih tab sesuai semester).
+async function getSheetTabs(spreadsheetId) {
+    if (!spreadsheetId) return [];
+    if (tabCache.id === spreadsheetId && Date.now() - tabCache.at < TAB_CACHE_MS) {
+        return tabCache.tabs;
+    }
+    const { body } = await httpGet(`https://docs.google.com/spreadsheets/d/${spreadsheetId}/htmlview`);
+    const tabs = [];
+    const re = /name:\s*"([^"]+)"[^}]*?gid:\s*"(-?\d+)"/g;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+        if (!tabs.some((t) => t.gid === m[2])) tabs.push({ name: m[1], gid: m[2] });
+    }
+    tabCache = { id: spreadsheetId, at: Date.now(), tabs };
+    return tabs;
+}
+
+// Cari tab yang cocok dengan semester aktif, mis. semester 3 -> "sem 3".
+function findSemesterTab(tabs, semester) {
+    if (!Array.isArray(tabs) || !semester) return null;
+    const sem = String(semester);
+    const candidates = [`sem${sem}`, `semester${sem}`];
+    const exact = tabs.find((t) => candidates.includes(normalizeSheetName(t.name)));
+    if (exact) return exact;
+    return tabs.find((t) => {
+        const n = normalizeSheetName(t.name);
+        return /^sem/.test(n) && n.endsWith(sem);
+    }) || null;
+}
+
+function getGvizUrl(inputUrl, gidOverride) {
+    const id = getSpreadsheetId(inputUrl);
+    if (!id) return inputUrl;
+    const gidMatch = String(inputUrl).match(/gid=(-?\d+)/);
+    const gid = gidOverride || (gidMatch && gidMatch[1]);
+    let gvizUrl = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json`;
+    if (gid) {
+        gvizUrl += `&gid=${gid}`;
+    }
+    return gvizUrl;
+}
+
+function fetchSheetData(url, gidOverride) {
+    return new Promise((resolve, reject) => {
+        const gvizUrl = getGvizUrl(url, gidOverride);
+        https.get(gvizUrl, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
@@ -55,12 +109,36 @@ async function getKasSummary() {
         mappingLower[String(key).toLowerCase().trim()] = value;
     }
     const currentWeek = dbData.minggu_ke || 1;
+    const semester = Number(dbData.semester) || 1;
 
     if (!sheetUrl) {
         throw new Error('URL Google Sheet Kas belum dikonfigurasi!');
     }
 
-    const sheetJson = await fetchSheetData(sheetUrl);
+    // Pilih tab spreadsheet sesuai semester aktif (mis. "sem 3") supaya
+    // otomatis ikut berpindah saat semester berganti.
+    const spreadsheetId = getSpreadsheetId(sheetUrl);
+    const autoSemester = String(process.env.KAS_AUTO_SEMESTER || 'true') !== 'false';
+    let resolvedGid = null;
+    let semesterTab = null;
+    let semesterFallback = false;
+    if (autoSemester && spreadsheetId) {
+        try {
+            const tabs = await getSheetTabs(spreadsheetId);
+            const tab = findSemesterTab(tabs, semester);
+            if (tab) {
+                resolvedGid = tab.gid;
+                semesterTab = tab.name;
+            } else if (tabs.length) {
+                semesterFallback = true;
+                console.warn(`[KAS] Tab untuk semester ${semester} tidak ditemukan. Tab tersedia: ${tabs.map((t) => t.name).join(', ')}`);
+            }
+        } catch (err) {
+            console.warn('[KAS] Gagal membaca daftar tab semester:', err.message);
+        }
+    }
+
+    const sheetJson = await fetchSheetData(sheetUrl, resolvedGid);
     const rows = sheetJson.table.rows;
     if (!rows || rows.length < 3) {
         throw new Error('Data spreadsheet kosong atau tidak valid.');
@@ -136,11 +214,19 @@ async function getKasSummary() {
     // Urutkan penunggak berdasarkan jumlah tunggakan terbesar.
     debtors.sort((a, b) => b.totalOwed - a.totalOwed);
 
+    // Link detail diarahkan ke tab semester yang sedang aktif.
+    const detailUrl = spreadsheetId
+        ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit${resolvedGid ? `#gid=${resolvedGid}` : ''}`
+        : sheetUrl;
+
     return {
-        sheetUrl,
+        sheetUrl: detailUrl,
         paymentInfo,
         mapping,
         currentWeek,
+        semester,
+        semesterTab,
+        semesterFallback,
         weeklyDues,
         debtors,
         totalStudents,
@@ -150,10 +236,13 @@ async function getKasSummary() {
 }
 
 function formatKasReminder(summary) {
-    const { currentWeek, weeklyDues, debtors, paymentInfo, sheetUrl } = summary;
+    const { currentWeek, weeklyDues, debtors, paymentInfo, sheetUrl, semester = 1, semesterFallback } = summary;
     let text = `📢 *PENGINGAT KAS KELAS TRI C* 📢\n`;
-    text += `Perkuliahan: *Minggu ke-${currentWeek}*\n`;
+    text += `Perkuliahan: *Semester ${semester} — Minggu ke-${currentWeek}*\n`;
     text += `Tarif Mingguan: *Rp${weeklyDues.toLocaleString('id-ID')}*\n\n`;
+    if (semesterFallback) {
+        text += `⚠️ _Catatan: tab "Sem ${semester}" belum ada di spreadsheet, sementara memakai tab default._\n\n`;
+    }
     text += `Berikut adalah daftar mahasiswa yang belum melunasi kas s.d. Minggu ini:\n\n`;
 
     const mentions = [];
@@ -181,11 +270,15 @@ function formatKasReminder(summary) {
 }
 
 function formatKasRekap(summary) {
-    const { currentWeek, weeklyDues, debtors, totalStudents, paidCount, totalOwed, paymentInfo, sheetUrl } = summary;
+    const { currentWeek, weeklyDues, debtors, totalStudents, paidCount, totalOwed, paymentInfo, sheetUrl, semester = 1, semesterFallback } = summary;
 
     let text = `💰 *REKAP KAS KELAS TRI C* 💰\n`;
-    text += `Perkuliahan: *Minggu ke-${currentWeek}*\n`;
-    text += `Iuran: *Rp${weeklyDues.toLocaleString('id-ID')} / minggu*\n\n`;
+    text += `Perkuliahan: *Semester ${semester} — Minggu ke-${currentWeek}*\n`;
+    text += `Iuran: *Rp${weeklyDues.toLocaleString('id-ID')} / minggu*\n`;
+    if (semesterFallback) {
+        text += `⚠️ _Tab "Sem ${semester}" belum ada, memakai tab default._\n`;
+    }
+    text += `\n`;
     text += `👥 Total mahasiswa: *${totalStudents}*\n`;
     text += `✅ Sudah lunas: *${paidCount}*\n`;
     text += `❌ Belum lunas: *${debtors.length}*\n`;
