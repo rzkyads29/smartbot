@@ -228,13 +228,32 @@ Ketik *.menu* untuk kembali.`,
   },
 };
 
-async function createMeme(base64Image, mimetype, topText, bottomText) {
+// Chrome dipakai untuk .meme/.nulis. Di VPS RAM kecil, hanya boleh satu
+// proses sekaligus dan browser harus selalu ditutup walau rendering gagal.
+let mediaBrowserBusy = false;
+
+async function withMediaBrowser(render) {
+  if (mediaBrowserBusy) {
+    throw new Error("Fitur gambar sedang dipakai proses lain. Coba lagi sebentar ya.");
+  }
+  mediaBrowserBusy = true;
   const puppeteer = require("puppeteer");
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox"],
-  });
-  const page = await browser.newPage();
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    });
+    const page = await browser.newPage();
+    return await render(page);
+  } finally {
+    mediaBrowserBusy = false;
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
+async function createMeme(base64Image, mimetype, topText, bottomText) {
+  return withMediaBrowser(async (page) => {
   const html = `
     <!DOCTYPE html>
     <html>
@@ -273,18 +292,12 @@ async function createMeme(base64Image, mimetype, topText, bottomText) {
     `;
   await page.setContent(html, { waitUntil: "networkidle0" });
   const element = await page.$("#capture");
-  const screenshot = await element.screenshot({ encoding: "base64" });
-  await browser.close();
-  return screenshot;
+  return element.screenshot({ encoding: "base64" });
+  });
 }
 
 async function createNulis(teks) {
-  const puppeteer = require("puppeteer");
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox"],
-  });
-  const page = await browser.newPage();
+  return withMediaBrowser(async (page) => {
   const html = `
     <!DOCTYPE html>
     <html>
@@ -339,9 +352,8 @@ async function createNulis(teks) {
     `;
   await page.setContent(html, { waitUntil: "networkidle0" });
   const element = await page.$("body");
-  const screenshot = await element.screenshot({ encoding: "base64" });
-  await browser.close();
-  return screenshot;
+  return element.screenshot({ encoding: "base64" });
+  });
 }
 
 // Inisialisasi AI dengan sistem Multiple API Keys (Fallback)
@@ -1073,10 +1085,18 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
     try {
       // Menggunakan API wttr.in gratis tanpa key
       const fetch = require("node-fetch");
-      const response = await fetch(
-        `https://wttr.in/${encodeURIComponent(kota)}?format=%l:+%c+%C,+Suhu:+%t,+Angin:+%w`,
-      );
-      const data = await response.text();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      let data;
+      try {
+        const response = await fetch(
+          `https://wttr.in/${encodeURIComponent(kota)}?format=%l:+%c+%C,+Suhu:+%t,+Angin:+%w`,
+          { signal: controller.signal },
+        );
+        data = await response.text();
+      } finally {
+        clearTimeout(timer);
+      }
       if (data.includes("Unknown location")) {
         msg.reply(`Maaf, kota *${kota}* tidak ditemukan.`);
       } else {
@@ -1234,7 +1254,7 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
       const fs = require("fs");
       const path = require("path");
       const portalPath = path.join(__dirname, "..", "debug_portal.png");
-      const targetGroup = "120363424800769453@g.us";
+      const targetGroup = (process.env.BUTTONS_TEST_GROUP_ID || "120363424800769453@g.us").trim();
 
       if (fs.existsSync(portalPath)) {
         const akun = getLastUsedAccount() || "Belum diketahui";
@@ -1274,7 +1294,24 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
       return;
     }
 
-    if (msg.body.toLowerCase().startsWith(".hapusabsen")) { let parts = msg.body.trim().split(" "); if (parts.length < 2) { msg.reply("Format salah. Contoh penggunaan: .hapusabsen Workshop Embedded"); return; } let targetMatkul = parts.slice(1).join(" "); const { hapusAbsen } = require("./database"); let sukses = hapusAbsen(targetMatkul); if (sukses) { msg.reply(`? Berhasil menghapus rekaman absensi untuk matkul yang mengandung kata "${targetMatkul}" dari minggu ini.`); } else { msg.reply(`? Gagal menghapus. Matkul "${targetMatkul}" tidak ditemukan pada rekaman minggu ini.`); } } if (msg.body.toLowerCase().startsWith(".clearabsen")) {
+    if (msg.body.toLowerCase().startsWith(".hapusabsen")) {
+      const parts = msg.body.trim().split(" ");
+      if (parts.length < 2) {
+        msg.reply("Format salah. Contoh penggunaan: .hapusabsen Workshop Embedded");
+        return;
+      }
+      const targetMatkul = parts.slice(1).join(" ");
+      const { hapusAbsen } = require("./database");
+      const sukses = hapusAbsen(targetMatkul);
+      if (sukses) {
+        msg.reply(`✅ Berhasil menghapus rekaman absensi untuk matkul yang mengandung kata "${targetMatkul}" dari minggu ini.`);
+      } else {
+        msg.reply(`❌ Gagal menghapus. Matkul "${targetMatkul}" tidak ditemukan pada rekaman minggu ini.`);
+      }
+      return;
+    }
+
+    if (msg.body.toLowerCase().startsWith(".clearabsen")) {
       let args = msg.body.trim().split(/\s+/);
       if (args.length < 2) {
         msg.reply("Format salah. Contoh penggunaan: .clearabsen 2");
@@ -1296,15 +1333,19 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
 
     if (msg.body.toLowerCase() === ".testnotif") {
       const tanggalHariIni = new Date().toLocaleDateString("id-ID");
-      const targetGroup = "120363424800769453@g.us";
-      announceAbsen(
+      const targetGroup = (process.env.BUTTONS_TEST_GROUP_ID || "120363424800769453@g.us").trim();
+      const ok = await announceAbsen(
         client,
         targetGroup,
         "MATKUL TESTING (INI CUMA TEST YAA)",
         tanggalHariIni,
       );
       if (msg.from !== targetGroup) {
-        msg.reply("✅ Notifikasi test absen telah dikirim ke grup testing.");
+        msg.reply(
+          ok
+            ? "✅ Notifikasi test absen berhasil dikirim ke grup testing."
+            : "❌ Gagal mengirim notifikasi test. Cek log atau pastikan bot masih ada di grup testing.",
+        );
       }
     }
 
@@ -1367,14 +1408,20 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
         semesterBaru = parseInt(parts[1]);
       }
 
-      let data = {
-        minggu_ke: 1,
-        semester: semesterBaru,
-        jadwal: {},
-      };
+      let data = loadData();
+      // Simpan backup dulu sebelum menghapus histori absensi.
+      const backup = backupDatabase();
+      if (!backup.ok) {
+        console.error(`[RESETBOT] Backup sebelum reset gagal: ${backup.reason}`);
+      }
+      // Pertahankan jadwal, tugas, dan konfigurasi kas; yang direset hanya
+      // histori absensi + minggu.
+      data.minggu_ke = 1;
+      data.semester = semesterBaru;
+      data.jadwal = {};
       saveData(data);
       msg.reply(
-        `Database berhasil direset!\n\nSelamat datang di *Semester ${semesterBaru}*. Sistem telah dikembalikan ke *Minggu ke-1* dan seluruh histori absensi semester lama telah dihapus.`,
+        `Database berhasil direset!\n\nSelamat datang di *Semester ${semesterBaru}*. Sistem telah dikembalikan ke *Minggu ke-1* dan seluruh histori absensi semester lama telah dihapus.${backup.ok ? "\n\n💾 Backup otomatis dibuat sebelum reset." : ""}`,
       );
     }
 
@@ -1606,7 +1653,7 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
          console.error("FFMPEG conversion failed, falling back to MP3:", e?.message || e);
          const media = { 
             audio: Buffer.from(base64, "base64"), 
-            mimetype: "audio/mp4", 
+            mimetype: "audio/mpeg", 
             ptt: false 
          };
          const options = _isGroup ? { quoted: fakeVerif } : {};
@@ -1930,7 +1977,11 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
         console.error("[MEME] Writer/koneksi bermasalah; balasan teks dibatalkan.");
         return;
       }
-      msg.reply("Terjadi kesalahan saat membuat meme.");
+      msg.reply(
+        String(err?.message || "").includes("sedang dipakai")
+          ? err.message
+          : "Terjadi kesalahan saat membuat meme.",
+      );
     }
   }
 
@@ -1950,7 +2001,11 @@ _Catatan: Bot otomatis ganti minggu setiap Senin, punya auto-reminder tugas seti
         console.error("[NULIS] Writer/koneksi bermasalah; balasan teks dibatalkan.");
         return;
       }
-      msg.reply("Maaf, tintanya habis (terjadi kesalahan sistem).");
+      msg.reply(
+        String(err?.message || "").includes("sedang dipakai")
+          ? err.message
+          : "Maaf, tintanya habis (terjadi kesalahan sistem).",
+      );
     }
   }
 
