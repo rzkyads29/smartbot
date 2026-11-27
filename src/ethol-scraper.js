@@ -847,8 +847,8 @@ ${jadwalText.substring(0, 5000)}
 === TEKS DAFTAR TUGAS ===
 ${tugasText.substring(0, 5000)}`;
 
-        const models = [process.env.GEMINI_MODEL || "gemini-3.6-flash"];
-        const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+        const models = [process.env.GEMINI_MODEL || "gemini-3.8-flash"];
+        const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.7-flash";
         if (fallbackModel && !models.includes(fallbackModel)) {
             models.push(fallbackModel);
         }

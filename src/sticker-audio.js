@@ -93,29 +93,51 @@ async function encodeStickerWithinBudget(videoPath, stickerPath, { seconds, fps,
   throw lastError;
 }
 
+// WhatsApp mobile menolak klip sound sticker yang di-encode sekali jalan
+// (video -> Opus mono) dengan "Couldn't play sticker sound". Encode dua tahap
+// dulu: video -> Opus stereo 64k, lalu file Ogg itu -> Opus mono 32k. Cara ini
+// yang dipakai implementasi sound sticker yang terbukti bunyi di HP.
 async function encodeAudio(videoPath, oggPath, m4aPath) {
-  const common = [
-    "-hide_banner", "-loglevel", "error", "-nostats",
-    "-threads", "1", "-filter_threads", "1",
-    "-y", "-i", videoPath, "-t", String(AUDIO_SECONDS), "-vn", "-ac", "1",
-  ];
+  const stepPath = `${oggPath}.step1.ogg`;
 
   try {
     await run("ffmpeg", [
-      ...common, "-ar", "48000", "-map", "0:a:0",
-      "-c:a", "libopus", "-b:a", "48k", "-application", "voip",
+      "-hide_banner", "-loglevel", "error", "-nostats",
+      "-threads", "1", "-filter_threads", "1",
+      "-y", "-i", videoPath, "-vn", "-t", String(AUDIO_SECONDS),
+      "-map", "0:a:0",
+      "-c:a", "libopus", "-b:a", "64k",
       "-map_metadata", "-1", "-f", "ogg",
+      stepPath,
+    ]);
+
+    await run("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-nostats",
+      "-threads", "1", "-filter_threads", "1",
+      "-y", "-i", stepPath,
+      "-ac", "1",
+      "-c:a", "libopus", "-b:a", "32k",
+      "-f", "ogg",
       oggPath,
     ]);
     return { path: oggPath, mimetype: "audio/ogg; codecs=opus" };
   } catch (err) {
     if (String(err.message).includes("tidak ditemukan")) throw err;
     await run("ffmpeg", [
-      ...common, "-ar", "44100",
+      "-hide_banner", "-loglevel", "error", "-nostats",
+      "-threads", "1", "-filter_threads", "1",
+      "-y", "-i", videoPath, "-t", String(AUDIO_SECONDS), "-vn",
+      "-ac", "1", "-ar", "44100",
       "-c:a", "aac", "-b:a", "64k",
       m4aPath,
     ]);
     return { path: m4aPath, mimetype: "audio/mp4" };
+  } finally {
+    try {
+      fs.unlinkSync(stepPath);
+    } catch (err) {
+      // File antara mungkin tidak sempat dibuat; abaikan.
+    }
   }
 }
 

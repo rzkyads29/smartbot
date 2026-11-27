@@ -8,7 +8,9 @@
 // encoded into the documented wire:
 // Message.134 { 1: Message { 26: StickerMessage { 24=0, 26: AudioMessage } } }
 const { proto, prepareWAMessageMedia } = require("@whiskeysockets/baileys");
+const pino = require("pino");
 
+const silentLogger = pino({ level: "silent" });
 const AUDIO_MIMETYPE = "audio/ogg; codecs=opus";
 const MAX_AUDIO_BYTES = Number(process.env.SOUND_STICKER_MAX_AUDIO_BYTES || 900 * 1024);
 
@@ -20,24 +22,20 @@ async function prepareSoundSticker(client, sticker, audio, audioSeconds = 0) {
   if (!isSoundStickerEnabled()) return null;
   if (!audio || audio.length > MAX_AUDIO_BYTES) return null;
 
-  // AudioMessage.seconds helps WhatsApp decode the sound sticker; when the
-  // source is known we forward it instead of relying on Baileys ffprobe.
-  // Baileys fork re-transcodes whenever mimetype contains "codecs=opus"
-  // (forceOpus). Its default ffmpeg .ogg output can carry a Theora stream,
-  // which WhatsApp sound stickers refuse to play. Upload the already-valid
-  // Opus bytes untouched, then restore the expected wire mimetype.
+  // Jangan set mimetype sendiri. Dengan default Baileys ("audio/ogg; codecs=opus")
+  // Baileys menjalankan konversi Opus-nya, sama seperti implementasi sound sticker
+  // yang terbukti bunyi. Override mimetype sesudah upload pernah bikin klien
+  // menampilkan tombol suara tapi tidak memutar audio.
   const media = await prepareWAMessageMedia(
     {
       audio,
-      mimetype: "audio/ogg",
-      ptt: false,
       ...(audioSeconds ? { seconds: audioSeconds } : {}),
     },
-    { upload: client.waUploadToServer }
+    { upload: client.waUploadToServer, logger: silentLogger },
   );
 
   if (!media?.audioMessage) return null;
-  media.audioMessage.mimetype = AUDIO_MIMETYPE;
+  if (!media.audioMessage.mimetype) media.audioMessage.mimetype = AUDIO_MIMETYPE;
 
   return {
     content: { sticker },
